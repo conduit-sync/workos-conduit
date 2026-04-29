@@ -29,9 +29,11 @@ class Settings(BaseSettings):
     sync_allowed_groups_ssm_param: str = "/workos-conduit/allowed-groups"
 
     # Backend selection
-    cursor_backend: str = "aws"   # "aws" | "local"
-    state_backend: str = "aws"    # "aws" | "local"
-    local_state_dir: str = ".local-state"  # used when cursor_backend=local or state_backend=local
+    cursor_backend: str = "aws"  # "aws" | "local"
+    state_backend: str = "aws"  # "aws" | "local"
+    local_state_dir: str = (
+        ".local-state"  # used when cursor_backend=local or state_backend=local
+    )
 
     # NinjaOne (only required when adapter=ninjaone)
     ninjaone_base_url: str = "https://app.ninjarmm.com"
@@ -100,6 +102,7 @@ class Settings(BaseSettings):
         raw = self.workos_event_types.strip()
         if raw.startswith("["):
             import json as _j
+
             try:
                 _j.loads(raw)
             except Exception as e:
