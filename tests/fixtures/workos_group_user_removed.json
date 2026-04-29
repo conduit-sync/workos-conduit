@@ -1,0 +1,21 @@
+{
+  "id": "evt_01H9ABCDEFGBBBB",
+  "event": "dsync.group.user_removed",
+  "created_at": "2024-04-01T14:00:00.000Z",
+  "data": {
+    "directory_id": "directory_01H9ABC",
+    "user": {
+      "id": "directory_user_01H9XYZ",
+      "email": "alice@example.com",
+      "first_name": "Alice",
+      "last_name": "Smith",
+      "state": "active",
+      "custom_attributes": {}
+    },
+    "group": {
+      "id": "directory_group_01H9GRP",
+      "name": "IT Admins",
+      "directory_id": "directory_01H9ABC"
+    }
+  }
+}

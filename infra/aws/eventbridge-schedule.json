@@ -1,0 +1,27 @@
+{
+  "_comment": "EventBridge Scheduler target definition. Create the schedule via the AWS Console or CLI.",
+  "_schedule_expression": "rate(5 minutes)",
+  "_schedule_expression_note": "Change to e.g. 'rate(1 minute)' for faster polling or 'cron(0 * * * ? *)' for hourly.",
+
+  "ScheduleExpression": "rate(5 minutes)",
+  "ScheduleExpressionTimezone": "UTC",
+  "FlexibleTimeWindow": {
+    "Mode": "OFF"
+  },
+  "Target": {
+    "_comment": "Replace INTERNAL_ALB_DNS with your ECS service's internal ALB or private IP.",
+    "Arn": "arn:aws:scheduler:::aws-sdk:httpInvoke",
+    "RoleArn": "arn:aws:iam::ACCOUNT_ID:role/EventBridgeSchedulerRole",
+    "Input": "{\"Method\": \"POST\", \"Uri\": \"http://INTERNAL_ALB_DNS:8080/api/v1/sync/trigger\", \"RequestBody\": \"{\\\"trigger_source\\\": \\\"scheduler\\\"}\", \"Headers\": {\"Content-Type\": [\"application/json\"], \"X-API-Key\": [\"YOUR_API_SECRET_KEY\"]}}",
+    "RetryPolicy": {
+      "MaximumRetryAttempts": 2,
+      "MaximumEventAgeInSeconds": 60
+    }
+  },
+  "_setup_instructions": [
+    "1. Create an IAM role 'EventBridgeSchedulerRole' with permission to invoke HTTP endpoints.",
+    "2. Replace ACCOUNT_ID, INTERNAL_ALB_DNS, and YOUR_API_SECRET_KEY above.",
+    "3. Deploy via: aws scheduler create-schedule --name workos-conduit-sync --cli-input-json file://infra/aws/eventbridge-schedule.json",
+    "4. To change frequency: update ScheduleExpression to e.g. 'rate(15 minutes)' and re-deploy."
+  ]
+}

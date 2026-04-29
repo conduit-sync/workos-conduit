@@ -1,0 +1,14 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file: .env
+    volumes:
+      - ~/.aws:/home/appuser/.aws:ro
+      - ./src:/app/src
+    environment:
+      LOG_FORMAT: console   # human-readable output for local dev
+    command: >
+      python -m uvicorn src.main:app
+      --host 0.0.0.0 --port 8080 --reload --reload-dir /app/src

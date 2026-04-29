@@ -1,0 +1,74 @@
+{
+  "family": "workos-conduit",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/workos-conduit-task-role",
+  "containerDefinitions": [
+    {
+      "name": "workos-conduit",
+      "image": "ghcr.io/YOUR_ORG/workos-conduit:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health/')\" || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 10,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "secrets": [
+        {
+          "name": "WORKOS_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:workos-conduit/WORKOS_API_KEY"
+        },
+        {
+          "name": "NINJAONE_CLIENT_ID",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:workos-conduit/NINJAONE_CLIENT_ID"
+        },
+        {
+          "name": "NINJAONE_CLIENT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:workos-conduit/NINJAONE_CLIENT_SECRET"
+        },
+        {
+          "name": "API_SECRET_KEY",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:workos-conduit/API_SECRET_KEY"
+        }
+      ],
+      "environment": [
+        { "name": "AWS_REGION",           "value": "us-east-1" },
+        { "name": "S3_STATE_BUCKET",      "value": "workos-conduit-state" },
+        { "name": "S3_STATE_PREFIX",      "value": "runs/" },
+        { "name": "SSM_CURSOR_PARAM",     "value": "/workos-conduit/cursor" },
+        { "name": "SYNC_TARGET_ADAPTER",  "value": "ninjaone" },
+        { "name": "CURSOR_BACKEND",       "value": "aws" },
+        { "name": "STATE_BACKEND",        "value": "aws" },
+        { "name": "NINJAONE_BASE_URL",    "value": "https://app.ninjarmm.com" },
+        { "name": "NINJAONE_ORG_ID",      "value": "YOUR_ORG_ID" },
+        { "name": "WORKOS_DIRECTORY_ID",  "value": "directory_YOUR_ID" },
+        { "name": "LOG_LEVEL",            "value": "INFO" },
+        { "name": "LOG_OUTPUT",           "value": "stdout" },
+        { "name": "LOG_FORMAT",           "value": "json" },
+        { "name": "DASHBOARD_ENABLED",    "value": "true" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/workos-conduit",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2024 WorkOS Conduit Contributors
+
+from __future__ import annotations
+
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
+import structlog
+from fastapi import FastAPI
+
+from src.api import health, runs, sync
+from src.config import get_settings
+from src.dashboard.router import router as dashboard_router
+from src.logging_config import configure_logging
+
+log = structlog.get_logger()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    settings = get_settings()
+    configure_logging(settings)
+    log.info(
+        "workos_conduit_started",
+        adapter=settings.sync_target_adapter,
+        cursor_backend=settings.cursor_backend,
+        state_backend=settings.state_backend,
+        dashboard_enabled=settings.dashboard_enabled,
+        version="1.0.0",
+    )
+    yield
+    log.info("workos_conduit_stopped")
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="WorkOS Conduit",
+        description="Generic user provisioning bridge: WorkOS → third-party targets",
+        version="1.0.0",
+        license_info={
+            "name": "GPL-3.0-or-later",
+            "url": "https://www.gnu.org/licenses/gpl-3.0",
+        },
+        lifespan=lifespan,
+    )
+
+    app.include_router(health.router, prefix="/health", tags=["health"])
+    app.include_router(sync.router, prefix="/api/v1/sync", tags=["sync"])
+    app.include_router(runs.router, prefix="/api/v1/runs", tags=["runs"])
+    app.include_router(dashboard_router, tags=["dashboard"])
+
+    return app
+
+
+app = create_app()

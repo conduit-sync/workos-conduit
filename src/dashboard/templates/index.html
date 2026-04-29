@@ -1,0 +1,347 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% if backend_error %}
+<div style="background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.3);color:var(--red);padding:.75rem 1rem;border-radius:6px;margin-bottom:1.5rem;font-size:.875rem;">
+  <strong>Run history unavailable</strong> — state backend is not configured or unreachable. Check <code>CURSOR_BACKEND</code> / <code>STATE_BACKEND</code> settings.
+</div>
+{% endif %}
+
+<!-- ── Action Bar ── -->
+<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem;">
+  <button class="btn btn-primary" onclick="openModal()">▶ Trigger Sync Now</button>
+  <span style="font-size:.8rem;color:var(--muted);">
+    Auto-refreshes every {{ dashboard_auto_refresh_seconds }}s
+  </span>
+</div>
+
+<!-- ── Two-column layout: main content + config panel ── -->
+<div style="display:grid;grid-template-columns:1fr 280px;gap:1.5rem;align-items:start;">
+<div><!-- ── left column ── -->
+
+<!-- ── Stat Cards ── -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;">
+
+  <div class="card">
+    <div class="section-title">Total Runs</div>
+    <div style="font-size:2rem;font-weight:700;">{{ total_runs }}</div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Events (24 h)</div>
+    <div style="font-size:2rem;font-weight:700;">{{ events_last_24h }}</div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Last Status</div>
+    {% if last_run %}
+      {% if last_run.status.value == "success" %}
+        <span class="pill pill-green">{{ last_run.status.value }}</span>
+      {% elif last_run.status.value == "partial_failure" %}
+        <span class="pill pill-amber">{{ last_run.status.value }}</span>
+      {% elif last_run.status.value == "error" %}
+        <span class="pill pill-red">{{ last_run.status.value }}</span>
+      {% else %}
+        <span class="pill pill-muted">{{ last_run.status.value }}</span>
+      {% endif %}
+    {% else %}
+      <span class="pill pill-muted">—</span>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="section-title">Last Duration</div>
+    <div style="font-size:2rem;font-weight:700;font-family:'IBM Plex Mono',monospace;">
+      {% if last_run %}{{ "%.2f"|format(last_run.duration_seconds) }}s{% else %}—{% endif %}
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Run History Table ── -->
+<div class="mt-4">
+  <div class="section-title">Run History</div>
+  <div class="card" style="padding:0;overflow:hidden;">
+    {% if runs %}
+    <table>
+      <thead>
+        <tr>
+          <th>Run ID</th>
+          <th>Started</th>
+          <th>Duration</th>
+          <th>Fetched</th>
+          <th>Created</th>
+          <th>Updated</th>
+          <th>Deactivated</th>
+          <th>Errors</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in runs %}
+        {% set counts = run.counts %}
+        {% set error_count = counts.get('error', 0) %}
+        <tr style="{% if error_count > 0 %}border-left: 3px solid var(--amber);{% endif %}">
+          <td>
+            <a href="/runs/{{ run.run_id }}" class="mono">{{ run.run_id[:8] }}</a>
+          </td>
+          <td class="mono" style="color:var(--text-dim);">
+            {{ run.started_at.strftime('%Y-%m-%d %H:%M:%S') }}
+          </td>
+          <td class="mono">{{ "%.2f"|format(run.duration_seconds) }}s</td>
+          <td>{{ run.events_fetched }}</td>
+          <td style="color:var(--green);">{{ counts.get('created', 0) }}</td>
+          <td style="color:var(--blue);">{{ counts.get('updated', 0) }}</td>
+          <td style="color:var(--amber);">{{ counts.get('deactivated', 0) }}</td>
+          <td style="color:var(--red);">{{ error_count }}</td>
+          <td>
+            {% if run.status.value == "success" %}
+              <span class="pill pill-green">success</span>
+            {% elif run.status.value == "partial_failure" %}
+              <span class="pill pill-amber">partial</span>
+            {% elif run.status.value == "error" %}
+              <span class="pill pill-red">error</span>
+            {% elif run.status.value == "no_events" %}
+              <span class="pill pill-muted">no events</span>
+            {% else %}
+              <span class="pill pill-muted">{{ run.status.value }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align:center;padding:3rem;color:var(--muted);">
+      No sync runs yet — trigger the first sync above.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Action Breakdown Bar ── -->
+{% set total_actions = action_totals.values() | sum %}
+{% if total_actions > 0 %}
+<div class="mt-4">
+  <div class="section-title">Action Breakdown (all runs)</div>
+  <div class="card">
+    <div style="display:flex;height:16px;border-radius:8px;overflow:hidden;gap:2px;">
+      {% if action_pcts.get('created', 0) > 0 %}
+        <div style="width:{{ action_pcts.get('created', 0) }}%;background:var(--green);"></div>
+      {% endif %}
+      {% if action_pcts.get('updated', 0) > 0 %}
+        <div style="width:{{ action_pcts.get('updated', 0) }}%;background:var(--blue);"></div>
+      {% endif %}
+      {% if action_pcts.get('deactivated', 0) > 0 %}
+        <div style="width:{{ action_pcts.get('deactivated', 0) }}%;background:var(--amber);"></div>
+      {% endif %}
+      {% if action_pcts.get('skipped', 0) + action_pcts.get('no_change', 0) > 0 %}
+        <div style="width:{{ action_pcts.get('skipped', 0) + action_pcts.get('no_change', 0) }}%;background:var(--muted);opacity:.5;"></div>
+      {% endif %}
+      {% if action_pcts.get('error', 0) > 0 %}
+        <div style="width:{{ action_pcts.get('error', 0) }}%;background:var(--red);"></div>
+      {% endif %}
+    </div>
+    <div class="mt-1" style="display:flex;gap:1.25rem;flex-wrap:wrap;font-size:.75rem;color:var(--muted);">
+      <span><span style="color:var(--green);">■</span> Created ({{ action_totals.get('created', 0) }})</span>
+      <span><span style="color:var(--blue);">■</span> Updated ({{ action_totals.get('updated', 0) }})</span>
+      <span><span style="color:var(--amber);">■</span> Deactivated ({{ action_totals.get('deactivated', 0) }})</span>
+      <span><span style="color:var(--muted);opacity:.5;">■</span> Skipped/No-change ({{ action_totals.get('skipped', 0) + action_totals.get('no_change', 0) }})</span>
+      <span><span style="color:var(--red);">■</span> Errors ({{ action_totals.get('error', 0) }})</span>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+</div><!-- ── end left column ── -->
+
+<!-- ── Config Panel (right column) ── -->
+<aside>
+  <div class="card" style="font-size:.8rem;padding:0;overflow:hidden;">
+    <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border);">
+      <span class="section-title" style="margin-bottom:0;">Configuration</span>
+    </div>
+
+    <!-- Key-value rows -->
+    <dl style="margin:0;font-size:.78rem;">
+      {% set kv_rows = [
+        ("Adapter",        none),
+        ("Cursor backend", config.cursor_backend),
+        ("State backend",  config.state_backend),
+        ("Directory ID",   config.workos_directory_id),
+        ("Stop on error",  none),
+        ("Log level",      config.log_level),
+        ("NinjaOne URL",   config.ninjaone_base_url)
+      ] %}
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem .9rem;border-bottom:1px solid rgba(48,54,61,.4);">
+        <dt style="color:var(--muted);white-space:nowrap;margin-right:.5rem;">Adapter</dt>
+        <dd style="margin:0;text-align:right;"><span class="pill pill-blue" style="font-size:.7rem;">{{ config.adapter }}</span></dd>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem .9rem;border-bottom:1px solid rgba(48,54,61,.4);">
+        <dt style="color:var(--muted);white-space:nowrap;margin-right:.5rem;">Cursor backend</dt>
+        <dd style="margin:0;text-align:right;"><span class="mono" style="color:var(--text);">{{ config.cursor_backend }}</span></dd>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem .9rem;border-bottom:1px solid rgba(48,54,61,.4);">
+        <dt style="color:var(--muted);white-space:nowrap;margin-right:.5rem;">State backend</dt>
+        <dd style="margin:0;text-align:right;"><span class="mono" style="color:var(--text);">{{ config.state_backend }}</span></dd>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem .9rem;border-bottom:1px solid rgba(48,54,61,.4);">
+        <dt style="color:var(--muted);white-space:nowrap;margin-right:.5rem;">Directory ID</dt>
+        <dd style="margin:0;text-align:right;max-width:55%;"><span class="mono" style="color:var(--text);word-break:break-all;font-size:.72rem;">{{ config.workos_directory_id }}</span></dd>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem .9rem;border-bottom:1px solid rgba(48,54,61,.4);">
+        <dt style="color:var(--muted);white-space:nowrap;margin-right:.5rem;">Stop on error</dt>
+        <dd style="margin:0;text-align:right;">
+          {% if config.stop_on_error %}
+            <span class="pill pill-amber" style="font-size:.7rem;">true</span>
+          {% else %}
+            <span class="pill pill-muted" style="font-size:.7rem;">false</span>
+          {% endif %}
+        </dd>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem .9rem;border-bottom:1px solid rgba(48,54,61,.4);">
+        <dt style="color:var(--muted);white-space:nowrap;margin-right:.5rem;">Log level</dt>
+        <dd style="margin:0;text-align:right;"><span class="mono" style="color:var(--text);">{{ config.log_level }}</span></dd>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem .9rem;border-bottom:1px solid rgba(48,54,61,.4);">
+        <dt style="color:var(--muted);white-space:nowrap;margin-right:.5rem;">S3 bucket</dt>
+        <dd style="margin:0;text-align:right;max-width:55%;">
+          {% if config.s3_state_bucket %}
+            <span class="mono" style="color:var(--text);word-break:break-all;font-size:.72rem;">{{ config.s3_state_bucket }}</span>
+          {% else %}
+            <span style="color:var(--muted);font-style:italic;font-size:.72rem;">not set</span>
+          {% endif %}
+        </dd>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem .9rem;">
+        <dt style="color:var(--muted);white-space:nowrap;margin-right:.5rem;">NinjaOne URL</dt>
+        <dd style="margin:0;text-align:right;max-width:55%;"><span class="mono" style="color:var(--text);word-break:break-all;font-size:.7rem;">{{ config.ninjaone_base_url }}</span></dd>
+      </div>
+    </dl>
+
+    <!-- Allowed Groups section -->
+    <div style="border-top:1px solid var(--border);padding:.6rem .9rem .4rem;">
+      <div style="color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem;">
+        Allowed Groups
+        <span style="font-size:.65rem;opacity:.65;text-transform:none;letter-spacing:0;margin-left:.35rem;">via {{ config.allowed_groups_source }}</span>
+      </div>
+      {% if config.allowed_groups %}
+        <div style="display:flex;flex-direction:column;gap:.25rem;">
+          {% for g in config.allowed_groups %}
+            <span class="chip">{{ g }}</span>
+          {% endfor %}
+        </div>
+      {% else %}
+        <span style="color:var(--muted);font-style:italic;font-size:.75rem;">All groups allowed</span>
+      {% endif %}
+    </div>
+
+    <!-- Group → Role Map section -->
+    <div style="border-top:1px solid var(--border);padding:.6rem .9rem .7rem;">
+      <div style="color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem;">
+        Group → Role Map
+        <span style="font-size:.65rem;opacity:.65;text-transform:none;letter-spacing:0;margin-left:.35rem;">via {{ config.role_map_source }}</span>
+      </div>
+      {% if config.role_map is none %}
+        <span style="color:var(--muted);font-style:italic;font-size:.75rem;">Loaded from SSM</span>
+      {% elif config.role_map %}
+        <table style="font-size:.75rem;width:100%;">
+          <thead>
+            <tr>
+              <th style="padding:.3rem .4rem .3rem 0;color:var(--muted);font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);">Group</th>
+              <th style="padding:.3rem 0 .3rem .4rem;color:var(--muted);font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);">Role</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for group, role in config.role_map.items() %}
+            <tr>
+              <td style="padding:.35rem .4rem .35rem 0;border-bottom:1px solid rgba(48,54,61,.4);"><span class="chip">{{ group }}</span></td>
+              <td style="padding:.35rem 0 .35rem .4rem;border-bottom:1px solid rgba(48,54,61,.4);"><span class="mono" style="color:var(--text);">{{ role }}</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <span style="color:var(--amber);font-style:italic;font-size:.75rem;">No mappings — group events skipped</span>
+      {% endif %}
+    </div>
+
+    <!-- WorkOS Event Types section -->
+    <div style="border-top:1px solid var(--border);padding:.6rem .9rem .7rem;">
+      <div style="color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem;">
+        WorkOS Event Types
+        <span style="float:right;font-size:.65rem;opacity:.65;text-transform:none;letter-spacing:0;">page size: {{ config.workos_events_page_size }}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:.2rem;">
+        {% for et in config.workos_event_types %}
+          <span class="chip" style="font-size:.68rem;">{{ et }}</span>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+</aside>
+
+</div><!-- ── end two-column grid ── -->
+
+<!-- ── Trigger Modal ── -->
+<div class="modal-backdrop" id="modal">
+  <div class="modal">
+    <h3>Trigger Sync</h3>
+    <label for="apiKey">API Key</label>
+    <input type="password" id="apiKey" placeholder="Enter X-API-Key" autocomplete="off" />
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="triggerSync()">Run Sync</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openModal() {
+    document.getElementById('modal').classList.add('open');
+    setTimeout(() => document.getElementById('apiKey').focus(), 50);
+  }
+  function closeModal() {
+    document.getElementById('modal').classList.remove('open');
+    document.getElementById('apiKey').value = '';
+  }
+  document.getElementById('modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Enter' && document.getElementById('modal').classList.contains('open')) triggerSync();
+  });
+
+  function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'show ' + type;
+    setTimeout(() => { t.className = ''; }, type === 'success' ? 6000 : 5000);
+  }
+
+  async function triggerSync() {
+    const key = document.getElementById('apiKey').value.trim();
+    if (!key) { showToast('API key is required', 'error'); return; }
+    closeModal();
+    try {
+      const resp = await fetch('/api/v1/sync/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+        body: JSON.stringify({ trigger_source: 'dashboard' }),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        showToast('Sync triggered — refreshing in 5s', 'success');
+        setTimeout(() => location.reload(), 5000);
+      } else {
+        showToast('Error: ' + (data.detail || JSON.stringify(data)), 'error');
+      }
+    } catch (err) {
+      showToast('Network error: ' + err.message, 'error');
+    }
+  }
+</script>
+
+{% endblock %}

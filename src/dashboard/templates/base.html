@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  {% if dashboard_auto_refresh_seconds and dashboard_auto_refresh_seconds > 0 %}
+  <script>setTimeout(() => location.reload(), {{ dashboard_auto_refresh_seconds }} * 1000);</script>
+  {% endif %}
+  <title>WorkOS Conduit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-2: #1c2128;
+      --border: #30363d;
+      --green: #3fb950;
+      --amber: #d29922;
+      --red: #f85149;
+      --blue: #58a6ff;
+      --muted: #8b949e;
+      --text: #e6edf3;
+      --text-dim: #7d8590;
+      --radius: 6px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Syne', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code, .mono {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.85em;
+    }
+
+    /* ── Nav ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.5rem;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .nav-title {
+      font-weight: 700;
+      font-size: 1rem;
+      flex: 1;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.2rem 0.65rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+    }
+    .pill-green  { background: rgba(63,185,80,.15);  color: var(--green);  border-color: rgba(63,185,80,.3);  }
+    .pill-amber  { background: rgba(210,153,34,.15); color: var(--amber);  border-color: rgba(210,153,34,.3); }
+    .pill-red    { background: rgba(248,81,73,.15);  color: var(--red);    border-color: rgba(248,81,73,.3);  }
+    .pill-blue   { background: rgba(88,166,255,.15); color: var(--blue);   border-color: rgba(88,166,255,.3); }
+    .pill-muted  { background: rgba(139,148,158,.1); color: var(--muted);  border-color: rgba(139,148,158,.2);}
+    .pill-dot::before {
+      content: '';
+      display: inline-block;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .chip {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      padding: 0.15rem 0.5rem;
+      border-radius: var(--radius);
+    }
+
+    /* ── Main layout ── */
+    main { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+    }
+
+    /* ── Tables ── */
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    th {
+      text-align: left;
+      padding: 0.6rem 0.75rem;
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid rgba(48,54,61,.5);
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius);
+      font-family: 'Syne', sans-serif;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: opacity .15s;
+    }
+    .btn:hover { opacity: .85; }
+    .btn-primary { background: var(--green); color: #0d1117; }
+    .btn-secondary { background: transparent; color: var(--text); border-color: var(--border); }
+
+    /* ── Utility ── */
+    .section-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+    .mt-1 { margin-top: .5rem; }
+    .mt-2 { margin-top: 1rem; }
+    .mt-3 { margin-top: 1.5rem; }
+    .mt-4 { margin-top: 2rem; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      padding: .75rem 1.25rem;
+      border-radius: var(--radius);
+      font-size: .875rem;
+      font-weight: 600;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .25s;
+      z-index: 9999;
+    }
+    #toast.show { opacity: 1; pointer-events: auto; }
+    #toast.success { background: var(--green); color: #0d1117; }
+    #toast.error   { background: var(--red);   color: #fff; }
+
+    /* ── Modal ── */
+    .modal-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.6);
+      z-index: 500;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      width: 380px;
+      max-width: 90vw;
+    }
+    .modal h3 { font-size: 1rem; margin-bottom: 1rem; }
+    .modal label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: .35rem; }
+    .modal input[type=password],
+    .modal input[type=text] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: .5rem .75rem;
+      border-radius: var(--radius);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: .85rem;
+      outline: none;
+    }
+    .modal input:focus { border-color: var(--blue); }
+    .modal-actions { display: flex; gap: .75rem; justify-content: flex-end; margin-top: 1.25rem; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">WorkOS Conduit</span>
+  {% if health is defined %}
+    {% if health == "healthy" %}
+      <span class="pill pill-green pill-dot">Healthy</span>
+    {% elif health == "degraded" %}
+      <span class="pill pill-amber pill-dot">Degraded</span>
+    {% elif health == "down" %}
+      <span class="pill pill-red pill-dot">Down</span>
+    {% elif health == "unknown" and last_run is defined and not last_run %}
+      <span class="pill pill-muted pill-dot">No runs yet</span>
+    {% elif health == "unknown" %}
+      <span class="pill pill-muted pill-dot">Unknown</span>
+    {% endif %}
+  {% endif %}
+  {% if last_run is defined and last_run %}
+    <span class="chip">Last run: {{ last_run.started_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>
+  {% endif %}
+</nav>
+
+<main>
+  {% block content %}{% endblock %}
+</main>
+
+<div id="toast"></div>
+
+
+</body>
+</html>
