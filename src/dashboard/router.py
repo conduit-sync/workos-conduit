@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -51,17 +52,25 @@ def _safe_config(settings: Settings) -> dict:
         allowed = []
 
     try:
-        role_map = json.loads(settings.ninjaone_group_role_map) if settings.ninjaone_group_role_map_source == "env" else None
+        role_map = (
+            json.loads(settings.ninjaone_group_role_map)
+            if settings.ninjaone_group_role_map_source == "env"
+            else None
+        )
     except Exception:
         role_map = {}
 
     from src.workos.client import _parse_event_types
+
     try:
         event_types = _parse_event_types(settings.workos_event_types)
     except Exception:
         event_types = [
-            "dsync.user.created", "dsync.user.updated", "dsync.user.deleted",
-            "dsync.group.user_added", "dsync.group.user_removed",
+            "dsync.user.created",
+            "dsync.user.updated",
+            "dsync.user.deleted",
+            "dsync.group.user_added",
+            "dsync.group.user_removed",
         ]
 
     return {
@@ -90,11 +99,15 @@ def _compute_action_totals(runs: list[RunRecord]) -> dict[str, int]:
     return totals
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get(
+    "/",
+    response_class=HTMLResponse,
+    responses={404: {"description": "Dashboard disabled"}},
+)
 async def dashboard(
     request: Request,
-    state_backend: StateBackend = Depends(get_state_backend_dep),
-    settings: Settings = Depends(get_settings),
+    state_backend: Annotated[StateBackend, Depends(get_state_backend_dep)] = None,
+    settings: Annotated[Settings, Depends(get_settings)] = None,
 ) -> HTMLResponse:
     if not settings.dashboard_enabled:
         raise HTTPException(status_code=404, detail="Dashboard disabled")
@@ -102,7 +115,9 @@ async def dashboard(
     backend_error: str | None = None
     runs: list[RunRecord] = []
     try:
-        runs = state_backend.list_recent_runs(limit=settings.dashboard_run_history_limit)
+        runs = state_backend.list_recent_runs(
+            limit=settings.dashboard_run_history_limit
+        )
     except Exception as exc:
         backend_error = str(exc)
         log.warning("dashboard_backend_unavailable", error=backend_error)
@@ -130,12 +145,19 @@ async def dashboard(
     )
 
 
-@router.get("/runs/{run_id}", response_class=HTMLResponse)
+@router.get(
+    "/runs/{run_id}",
+    response_class=HTMLResponse,
+    responses={
+        404: {"description": "Dashboard disabled or run not found"},
+        503: {"description": "State backend unavailable"},
+    },
+)
 async def run_detail(
     run_id: str,
     request: Request,
-    state_backend: StateBackend = Depends(get_state_backend_dep),
-    settings: Settings = Depends(get_settings),
+    state_backend: Annotated[StateBackend, Depends(get_state_backend_dep)] = None,
+    settings: Annotated[Settings, Depends(get_settings)] = None,
 ) -> HTMLResponse:
     if not settings.dashboard_enabled:
         raise HTTPException(status_code=404, detail="Dashboard disabled")
@@ -143,7 +165,9 @@ async def run_detail(
         record = state_backend.get_run(run_id)
     except Exception as exc:
         log.warning("dashboard_backend_unavailable", error=str(exc))
-        raise HTTPException(status_code=503, detail=f"State backend unavailable: {exc}") from exc
+        raise HTTPException(
+            status_code=503, detail=f"State backend unavailable: {exc}"
+        ) from exc
     if record is None:
         raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
     return templates.TemplateResponse(

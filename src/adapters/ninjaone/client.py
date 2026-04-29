@@ -15,6 +15,8 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
+_USERS_PATH = "/api/v2/users"
+
 
 class NinjaOneAPIError(Exception):
     def __init__(self, status_code: int, response_body: str) -> None:
@@ -94,9 +96,7 @@ class NinjaOneAPIClient:
         raise last_exc or NinjaOneAPIError(0, "Max retries exceeded")
 
     def get_technicians(self) -> list[dict]:
-        result = self._request(
-            "GET", "/api/v2/users", params={"userType": "TECHNICIAN"}
-        )
+        result = self._request("GET", _USERS_PATH, params={"userType": "TECHNICIAN"})
         if isinstance(result, list):
             return result
         return result.get("users", result.get("data", []))
@@ -109,7 +109,7 @@ class NinjaOneAPIClient:
         return None
 
     def create_technician(self, payload: dict) -> dict:
-        return self._request("POST", "/api/v2/users", json=payload)
+        return self._request("POST", _USERS_PATH, json=payload)
 
     def update_technician(self, user_id: int | str, payload: dict) -> dict:
         return self._request("PATCH", f"/api/v2/users/{user_id}", json=payload)
@@ -120,7 +120,7 @@ class NinjaOneAPIClient:
     def health_check(self) -> bool:
         try:
             self._request(
-                "GET", "/api/v2/users", params={"userType": "TECHNICIAN", "limit": 1}
+                "GET", _USERS_PATH, params={"userType": "TECHNICIAN", "limit": 1}
             )
             return True
         except Exception:

@@ -6,7 +6,7 @@ from __future__ import annotations
 from src.adapters.base import ProvisioningUser
 
 
-def workos_to_ninjaone(user: ProvisioningUser, org_id: str) -> dict:
+def workos_to_ninjaone(user: ProvisioningUser) -> dict:
     """Maps ProvisioningUser → NinjaOne technician create/update payload."""
     return {
         "firstName": user.first_name,

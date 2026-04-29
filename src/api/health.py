@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
@@ -21,10 +23,10 @@ async def liveness() -> dict:
 
 @router.get("/ready")
 async def readiness(
-    adapter: BaseTargetAdapter = Depends(get_adapter_dep),
-    cursor_backend: CursorBackend = Depends(get_cursor_backend_dep),
-    state_backend: StateBackend = Depends(get_state_backend_dep),
-):
+    adapter: Annotated[BaseTargetAdapter, Depends(get_adapter_dep)],
+    cursor_backend: Annotated[CursorBackend, Depends(get_cursor_backend_dep)],
+    state_backend: Annotated[StateBackend, Depends(get_state_backend_dep)],
+) -> JSONResponse:
     """
     Checks adapter + both backends.
     200 if all healthy, 503 if any component is unavailable.
