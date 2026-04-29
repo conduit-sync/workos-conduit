@@ -53,7 +53,7 @@ class SyncEngine:
                 if self._settings.sync_stop_on_error:
                     ctx.record_error(
                         event,
-                        Exception(result.error_message or "handler error"),
+                        RuntimeError(result.error_message or "handler error"),
                         terminated=True,
                     )
                     break

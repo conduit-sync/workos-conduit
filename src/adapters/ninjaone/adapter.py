@@ -33,7 +33,6 @@ class NinjaOneAdapter(BaseTargetAdapter):
 
     def __init__(self, settings: Settings) -> None:
         self._client = NinjaOneAPIClient(settings)
-        self._org_id = settings.ninjaone_org_id
         self._role_map: dict[str, str] = load_group_role_map(settings)
 
     def provision_user_created(self, user: ProvisioningUser) -> HandlerResult:
@@ -49,7 +48,7 @@ class NinjaOneAdapter(BaseTargetAdapter):
                 target_user_id=str(existing.get("id", "")),
                 duration_ms=int((time.monotonic() - start) * 1000),
             )
-        payload = workos_to_ninjaone(user, self._org_id)
+        payload = workos_to_ninjaone(user)
         resp = self._client.create_technician(payload)
         return HandlerResult(
             event_id="",
