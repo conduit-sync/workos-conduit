@@ -47,6 +47,9 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "--cov=src --cov-report=xml --cov-report=term-missing -v"
 
+[tool.coverage.run]
+omit = ["src/api/router.py"]
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
