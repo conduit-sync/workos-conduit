@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -98,11 +99,15 @@ def _compute_action_totals(runs: list[RunRecord]) -> dict[str, int]:
     return totals
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get(
+    "/",
+    response_class=HTMLResponse,
+    responses={404: {"description": "Dashboard disabled"}},
+)
 async def dashboard(
     request: Request,
-    state_backend: StateBackend = Depends(get_state_backend_dep),
-    settings: Settings = Depends(get_settings),
+    state_backend: Annotated[StateBackend, Depends(get_state_backend_dep)] = None,
+    settings: Annotated[Settings, Depends(get_settings)] = None,
 ) -> HTMLResponse:
     if not settings.dashboard_enabled:
         raise HTTPException(status_code=404, detail="Dashboard disabled")
@@ -140,12 +145,19 @@ async def dashboard(
     )
 
 
-@router.get("/runs/{run_id}", response_class=HTMLResponse)
+@router.get(
+    "/runs/{run_id}",
+    response_class=HTMLResponse,
+    responses={
+        404: {"description": "Dashboard disabled or run not found"},
+        503: {"description": "State backend unavailable"},
+    },
+)
 async def run_detail(
     run_id: str,
     request: Request,
-    state_backend: StateBackend = Depends(get_state_backend_dep),
-    settings: Settings = Depends(get_settings),
+    state_backend: Annotated[StateBackend, Depends(get_state_backend_dep)] = None,
+    settings: Annotated[Settings, Depends(get_settings)] = None,
 ) -> HTMLResponse:
     if not settings.dashboard_enabled:
         raise HTTPException(status_code=404, detail="Dashboard disabled")

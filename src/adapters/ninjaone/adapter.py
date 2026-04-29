@@ -22,6 +22,11 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
+_EVT_USER_CREATED = "dsync.user.created"
+_EVT_USER_UPDATED = "dsync.user.updated"
+_EVT_USER_DELETED = "dsync.user.deleted"
+_USERS_PATH = "/api/v2/users"
+
 
 class NinjaOneAdapter(BaseTargetAdapter):
     adapter_key = "ninjaone"
@@ -37,7 +42,7 @@ class NinjaOneAdapter(BaseTargetAdapter):
         if existing:
             return HandlerResult(
                 event_id="",
-                event_type="dsync.user.created",
+                event_type=_EVT_USER_CREATED,
                 action=SyncAction.SKIPPED,
                 target_adapter=self.adapter_key,
                 email=user.email,
@@ -48,7 +53,7 @@ class NinjaOneAdapter(BaseTargetAdapter):
         resp = self._client.create_technician(payload)
         return HandlerResult(
             event_id="",
-            event_type="dsync.user.created",
+            event_type=_EVT_USER_CREATED,
             action=SyncAction.CREATED,
             target_adapter=self.adapter_key,
             email=user.email,
@@ -61,7 +66,7 @@ class NinjaOneAdapter(BaseTargetAdapter):
         existing = self._client.find_technician_by_email(user.email)
         if not existing:
             result = self.provision_user_created(user)
-            result.event_type = "dsync.user.updated"
+            result.event_type = _EVT_USER_UPDATED
             return result
 
         diff: dict = {}
@@ -75,7 +80,7 @@ class NinjaOneAdapter(BaseTargetAdapter):
         if not diff:
             return HandlerResult(
                 event_id="",
-                event_type="dsync.user.updated",
+                event_type=_EVT_USER_UPDATED,
                 action=SyncAction.NO_CHANGE,
                 target_adapter=self.adapter_key,
                 email=user.email,
@@ -86,7 +91,7 @@ class NinjaOneAdapter(BaseTargetAdapter):
         self._client.update_technician(existing["id"], diff)
         return HandlerResult(
             event_id="",
-            event_type="dsync.user.updated",
+            event_type=_EVT_USER_UPDATED,
             action=SyncAction.UPDATED,
             target_adapter=self.adapter_key,
             email=user.email,
@@ -101,7 +106,7 @@ class NinjaOneAdapter(BaseTargetAdapter):
         if not existing:
             return HandlerResult(
                 event_id="",
-                event_type="dsync.user.deleted",
+                event_type=_EVT_USER_DELETED,
                 action=SyncAction.NOT_FOUND_SKIPPED,
                 target_adapter=self.adapter_key,
                 email=user.email,
@@ -110,7 +115,7 @@ class NinjaOneAdapter(BaseTargetAdapter):
         if not existing.get("enabled", True):
             return HandlerResult(
                 event_id="",
-                event_type="dsync.user.deleted",
+                event_type=_EVT_USER_DELETED,
                 action=SyncAction.ALREADY_INACTIVE,
                 target_adapter=self.adapter_key,
                 email=user.email,
@@ -120,7 +125,7 @@ class NinjaOneAdapter(BaseTargetAdapter):
         self._client.deactivate_technician(existing["id"])
         return HandlerResult(
             event_id="",
-            event_type="dsync.user.deleted",
+            event_type=_EVT_USER_DELETED,
             action=SyncAction.DEACTIVATED,
             target_adapter=self.adapter_key,
             email=user.email,

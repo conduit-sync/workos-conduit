@@ -30,7 +30,10 @@ class TriggerResponse(BaseModel):
     message: str
 
 
-@router.post("/trigger", response_model=TriggerResponse)
+@router.post(
+    "/trigger",
+    responses={401: {"description": "Invalid or missing X-API-Key"}},
+)
 async def trigger_sync(
     trigger: Annotated[TriggerRequest, Body(embed=False)],
     settings: Annotated[Settings, Depends(get_settings)],
@@ -57,7 +60,7 @@ async def trigger_sync(
 
 @router.get("/status")
 async def sync_status(
-    state_backend: StateBackend = Depends(get_state_backend_dep),
+    state_backend: Annotated[StateBackend, Depends(get_state_backend_dep)] = None,
 ) -> dict:
     """Returns most recent run record summary."""
     runs = state_backend.list_recent_runs(limit=1)
