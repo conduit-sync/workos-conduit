@@ -87,7 +87,9 @@ class SsmRefreshTokenStore:
         try:
             return RefreshTokenRecord.model_validate(data)
         except ValidationError as exc:
-            raise ValueError(f"Invalid refresh token payload in SSM '{self._param}'") from exc
+            raise ValueError(
+                f"Invalid refresh token payload in SSM '{self._param}'"
+            ) from exc
 
     def put(self, record: RefreshTokenRecord) -> None:
         self._client.put_parameter(

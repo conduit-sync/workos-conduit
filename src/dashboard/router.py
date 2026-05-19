@@ -158,7 +158,9 @@ async def dashboard(
             "backend_error": backend_error,
             "oauth_status": oauth_status,
             "oauth_error": oauth_error,
-            "config": _safe_config(settings, oauth_status=oauth_status, oauth_error=oauth_error),
+            "config": _safe_config(
+                settings, oauth_status=oauth_status, oauth_error=oauth_error
+            ),
         },
     )
 

@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-import httpx
-import respx
-
 import importlib.util
 from pathlib import Path
+
+import httpx
+import respx
 
 
 def _load_cli_module():
     script_path = (
         Path(__file__).resolve().parents[2] / "scripts" / "ninjaone_oauth_bootstrap.py"
     )
-    spec = importlib.util.spec_from_file_location("ninjaone_oauth_bootstrap", script_path)
+    spec = importlib.util.spec_from_file_location(
+        "ninjaone_oauth_bootstrap", script_path
+    )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

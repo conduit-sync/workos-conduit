@@ -68,11 +68,15 @@ class NinjaOneAPIClient:
         self._oauth_client_secret = settings.ninjaone_oauth_client_secret
         self._oauth_scope = settings.ninjaone_oauth_scope
         self._oauth_token_path = settings.ninjaone_oauth_token_path
-        self._refresh_token_lifetime_days = settings.ninjaone_oauth_refresh_token_lifetime_days
+        self._refresh_token_lifetime_days = (
+            settings.ninjaone_oauth_refresh_token_lifetime_days
+        )
         self._timeout = settings.http_timeout_seconds
         self._retry_max = settings.http_retry_max_attempts
         self._backoff_base = settings.http_retry_backoff_base_seconds
-        self._refresh_token_store = refresh_token_store or SsmRefreshTokenStore(settings)
+        self._refresh_token_store = refresh_token_store or SsmRefreshTokenStore(
+            settings
+        )
         self._access_token: str | None = None
         self._access_token_expiry: float = 0.0
 
@@ -80,7 +84,9 @@ class NinjaOneAPIClient:
         self._access_token = None
         self._access_token_expiry = 0.0
 
-    def _exchange_refresh_token(self, refresh_token: str) -> tuple[str, int, str | None]:
+    def _exchange_refresh_token(
+        self, refresh_token: str
+    ) -> tuple[str, int, str | None]:
         url = f"{self._base_url}{self._oauth_token_path}"
         data = {
             "grant_type": "refresh_token",
@@ -133,7 +139,9 @@ class NinjaOneAPIClient:
             expires_in = int(payload.get("expires_in", 3600))
             rotated_refresh = payload.get("refresh_token")
             if not token:
-                raise NinjaOneAuthError(resp.status_code, "Missing access_token in response")
+                raise NinjaOneAuthError(
+                    resp.status_code, "Missing access_token in response"
+                )
             return token, expires_in, rotated_refresh
 
         raise last_exc or NinjaOneAuthError(0, "Max token retries exceeded")
@@ -203,7 +211,9 @@ class NinjaOneAPIClient:
                     break
 
                 if resp.status_code == 429:
-                    retry_after = int(resp.headers.get("Retry-After", self._backoff_base))
+                    retry_after = int(
+                        resp.headers.get("Retry-After", self._backoff_base)
+                    )
                     log.warning(
                         "ninjaone_rate_limited",
                         method=method,

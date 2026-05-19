@@ -73,9 +73,16 @@ def test_oauth_callback_exchanges_code_and_writes_ssm(settings_override):
 
     state = parse_qs(urlparse(authorize_url).query)["state"][0]
 
-    respx.post(f"{settings.ninjaone_base_url}{settings.ninjaone_oauth_token_path}").mock(
+    respx.post(
+        f"{settings.ninjaone_base_url}{settings.ninjaone_oauth_token_path}"
+    ).mock(
         return_value=httpx.Response(
-            200, json={"access_token": "acc", "refresh_token": "new-refresh", "expires_in": 3600}
+            200,
+            json={
+                "access_token": "acc",
+                "refresh_token": "new-refresh",
+                "expires_in": 3600,
+            },
         )
     )
     resp = client.get(

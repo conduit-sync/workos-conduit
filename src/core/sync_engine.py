@@ -85,8 +85,10 @@ class SyncEngine:
         user_groups = group_cache.get(self._event_user_id(event), [])
         if admin_group and admin_group in user_groups:
             return "admin"
-        if event_type in _USER_CREATED_UPDATED and watched_groups and not any(
-            g in watched_groups for g in user_groups
+        if (
+            event_type in _USER_CREATED_UPDATED
+            and watched_groups
+            and not any(g in watched_groups for g in user_groups)
         ):
             return "unmatched"
         return "pending"
@@ -172,8 +174,10 @@ class SyncEngine:
         user_groups = group_cache[user_id]
         if admin_group and admin_group in user_groups:
             return "admin_group"
-        if event_type in _USER_CREATED_UPDATED and watched_groups and not any(
-            g in watched_groups for g in user_groups
+        if (
+            event_type in _USER_CREATED_UPDATED
+            and watched_groups
+            and not any(g in watched_groups for g in user_groups)
         ):
             return "not_in_watched_group"
         return None

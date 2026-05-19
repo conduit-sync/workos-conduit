@@ -41,9 +41,7 @@ def _prune_state_cache(now: datetime) -> None:
         _oauth_state_cache.pop(state, None)
 
 
-def _ensure_api_key(
-    settings: Settings, x_api_key: str | None, *, source: str
-) -> None:
+def _ensure_api_key(settings: Settings, x_api_key: str | None, *, source: str) -> None:
     if not x_api_key or x_api_key != settings.api_secret_key:
         log.warning("dashboard_oauth_unauthorized", source=source)
         raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key")
@@ -112,7 +110,9 @@ async def oauth_callback(
             status_code=303,
         )
     if error:
-        return RedirectResponse(url=f"/?oauth_status=error&detail={error}", status_code=303)
+        return RedirectResponse(
+            url=f"/?oauth_status=error&detail={error}", status_code=303
+        )
     if not code or not state:
         return RedirectResponse(
             url="/?oauth_status=error&detail=missing_code_or_state", status_code=303
@@ -122,7 +122,9 @@ async def oauth_callback(
     _prune_state_cache(now)
     issued_at = _oauth_state_cache.pop(state, None)
     if not issued_at or (now - issued_at) > timedelta(seconds=_STATE_TTL_SECONDS):
-        return RedirectResponse(url="/?oauth_status=error&detail=invalid_state", status_code=303)
+        return RedirectResponse(
+            url="/?oauth_status=error&detail=invalid_state", status_code=303
+        )
     if state_cookie != state:
         return RedirectResponse(
             url="/?oauth_status=error&detail=state_cookie_mismatch", status_code=303

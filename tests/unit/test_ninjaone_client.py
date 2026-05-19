@@ -29,7 +29,9 @@ def _make_store(token: str = "seed-refresh") -> InMemoryRefreshTokenStore:
     return store
 
 
-def _make_client(settings_override, store: InMemoryRefreshTokenStore) -> NinjaOneAPIClient:
+def _make_client(
+    settings_override, store: InMemoryRefreshTokenStore
+) -> NinjaOneAPIClient:
     return NinjaOneAPIClient(
         settings_override.model_copy(
             update={
@@ -50,7 +52,9 @@ def test_get_end_users_returns_list(settings_override):
     store = _make_store()
     client = _make_client(settings_override, store)
     respx.post("https://ninja.test/oauth/token").mock(
-        return_value=httpx.Response(200, json={"access_token": "access-1", "expires_in": 3600})
+        return_value=httpx.Response(
+            200, json={"access_token": "access-1", "expires_in": 3600}
+        )
     )
     respx.get("https://ninja.test/v2/user/end-users").mock(
         return_value=httpx.Response(200, json=[{"id": 1, "email": "bob@example.com"}])
@@ -64,7 +68,9 @@ def test_bearer_token_sent_on_requests(settings_override):
     store = _make_store()
     client = _make_client(settings_override, store)
     respx.post("https://ninja.test/oauth/token").mock(
-        return_value=httpx.Response(200, json={"access_token": "access-1", "expires_in": 3600})
+        return_value=httpx.Response(
+            200, json={"access_token": "access-1", "expires_in": 3600}
+        )
     )
     route = respx.get("https://ninja.test/v2/user/end-users").mock(
         return_value=httpx.Response(200, json=[])
@@ -79,7 +85,9 @@ def test_find_end_user_by_email_found(settings_override):
     store = _make_store()
     client = _make_client(settings_override, store)
     respx.post("https://ninja.test/oauth/token").mock(
-        return_value=httpx.Response(200, json={"access_token": "access-1", "expires_in": 3600})
+        return_value=httpx.Response(
+            200, json={"access_token": "access-1", "expires_in": 3600}
+        )
     )
     respx.get("https://ninja.test/v2/user/end-users").mock(
         return_value=httpx.Response(
@@ -100,7 +108,9 @@ def test_find_end_user_by_email_not_found(settings_override):
     store = _make_store()
     client = _make_client(settings_override, store)
     respx.post("https://ninja.test/oauth/token").mock(
-        return_value=httpx.Response(200, json={"access_token": "access-1", "expires_in": 3600})
+        return_value=httpx.Response(
+            200, json={"access_token": "access-1", "expires_in": 3600}
+        )
     )
     respx.get("https://ninja.test/v2/user/end-users").mock(
         return_value=httpx.Response(200, json=[])
@@ -113,7 +123,9 @@ def test_create_end_user(settings_override):
     store = _make_store()
     client = _make_client(settings_override, store)
     respx.post("https://ninja.test/oauth/token").mock(
-        return_value=httpx.Response(200, json={"access_token": "access-1", "expires_in": 3600})
+        return_value=httpx.Response(
+            200, json={"access_token": "access-1", "expires_in": 3600}
+        )
     )
     respx.post("https://ninja.test/v2/user/end-users").mock(
         return_value=httpx.Response(200, json={"id": 99})
@@ -127,7 +139,9 @@ def test_update_end_user(settings_override):
     store = _make_store()
     client = _make_client(settings_override, store)
     respx.post("https://ninja.test/oauth/token").mock(
-        return_value=httpx.Response(200, json={"access_token": "access-1", "expires_in": 3600})
+        return_value=httpx.Response(
+            200, json={"access_token": "access-1", "expires_in": 3600}
+        )
     )
     respx.patch("https://ninja.test/v2/user/end-user/5").mock(
         return_value=httpx.Response(204)
@@ -141,7 +155,9 @@ def test_deactivate_end_user(settings_override):
     store = _make_store()
     client = _make_client(settings_override, store)
     respx.post("https://ninja.test/oauth/token").mock(
-        return_value=httpx.Response(200, json={"access_token": "access-1", "expires_in": 3600})
+        return_value=httpx.Response(
+            200, json={"access_token": "access-1", "expires_in": 3600}
+        )
     )
     respx.patch("https://ninja.test/v2/user/end-user/3").mock(
         return_value=httpx.Response(204)
@@ -154,7 +170,9 @@ def test_request_raises_on_4xx(settings_override):
     store = _make_store()
     client = _make_client(settings_override, store)
     respx.post("https://ninja.test/oauth/token").mock(
-        return_value=httpx.Response(200, json={"access_token": "access-1", "expires_in": 3600})
+        return_value=httpx.Response(
+            200, json={"access_token": "access-1", "expires_in": 3600}
+        )
     )
     respx.get("https://ninja.test/v2/user/end-users").mock(
         return_value=httpx.Response(403, text="Forbidden")
@@ -169,7 +187,9 @@ def test_health_check_true(settings_override):
     store = _make_store()
     client = _make_client(settings_override, store)
     respx.post("https://ninja.test/oauth/token").mock(
-        return_value=httpx.Response(200, json={"access_token": "access-1", "expires_in": 3600})
+        return_value=httpx.Response(
+            200, json={"access_token": "access-1", "expires_in": 3600}
+        )
     )
     respx.get("https://ninja.test/v2/user/end-users").mock(
         return_value=httpx.Response(200, json=[])
@@ -182,7 +202,9 @@ def test_health_check_false_on_error(settings_override):
     store = _make_store()
     client = _make_client(settings_override, store)
     respx.post("https://ninja.test/oauth/token").mock(
-        return_value=httpx.Response(200, json={"access_token": "access-1", "expires_in": 3600})
+        return_value=httpx.Response(
+            200, json={"access_token": "access-1", "expires_in": 3600}
+        )
     )
     respx.get("https://ninja.test/v2/user/end-users").mock(
         return_value=httpx.Response(500, text="Internal Server Error")
@@ -195,7 +217,9 @@ def test_request_retries_on_5xx_then_fails(settings_override):
     store = _make_store()
     client = _make_client(settings_override, store)
     respx.post("https://ninja.test/oauth/token").mock(
-        return_value=httpx.Response(200, json={"access_token": "access-1", "expires_in": 3600})
+        return_value=httpx.Response(
+            200, json={"access_token": "access-1", "expires_in": 3600}
+        )
     )
     respx.get("https://ninja.test/v2/user/end-users").mock(
         return_value=httpx.Response(503, text="Service Unavailable")
@@ -209,7 +233,9 @@ def test_get_end_users_wrapped_response(settings_override):
     store = _make_store()
     client = _make_client(settings_override, store)
     respx.post("https://ninja.test/oauth/token").mock(
-        return_value=httpx.Response(200, json={"access_token": "access-1", "expires_in": 3600})
+        return_value=httpx.Response(
+            200, json={"access_token": "access-1", "expires_in": 3600}
+        )
     )
     respx.get("https://ninja.test/v2/user/end-users").mock(
         return_value=httpx.Response(200, json={"users": [{"id": 5}]})
@@ -223,7 +249,9 @@ def test_access_token_cached_across_calls(settings_override):
     store = _make_store()
     client = _make_client(settings_override, store)
     token_route = respx.post("https://ninja.test/oauth/token").mock(
-        return_value=httpx.Response(200, json={"access_token": "access-1", "expires_in": 3600})
+        return_value=httpx.Response(
+            200, json={"access_token": "access-1", "expires_in": 3600}
+        )
     )
     users_route = respx.get("https://ninja.test/v2/user/end-users").mock(
         return_value=httpx.Response(200, json=[])
@@ -264,7 +292,11 @@ def test_invalid_grant_raises_refresh_token_expired(settings_override):
     client = _make_client(settings_override, store)
     respx.post("https://ninja.test/oauth/token").mock(
         return_value=httpx.Response(
-            400, json={"error": "invalid_grant", "error_description": "expired refresh token"}
+            400,
+            json={
+                "error": "invalid_grant",
+                "error_description": "expired refresh token",
+            },
         )
     )
 
