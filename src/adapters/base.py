@@ -66,5 +66,13 @@ class BaseTargetAdapter(ABC):
         """Map group name to role. Return SKIPPED if no mapping exists."""
 
     @abstractmethod
+    def watched_groups(self) -> set[str]:
+        """Return group names this adapter is configured to process.
+
+        Used by the engine to filter user events — only users in these groups
+        are provisioned. Return an empty set to allow all users through.
+        """
+
+    @abstractmethod
     def health_check(self) -> bool:
         """Return True if target system is reachable. Used by /health/ready."""

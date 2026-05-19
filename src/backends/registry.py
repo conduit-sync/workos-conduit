@@ -55,8 +55,10 @@ register_cursor_backend("aws", lambda s: SsmCursorBackend(s))
 register_state_backend("aws", lambda s: S3StateBackend(s))
 
 # Local backends (for development — no AWS credentials required)
+from src.backends.local.cursor_file import FileCursorBackend  # noqa: E402
 from src.backends.local.cursor_memory import MemoryCursorBackend  # noqa: E402
 from src.backends.local.state_file import FileStateBackend  # noqa: E402
 
-register_cursor_backend("local", lambda s: MemoryCursorBackend())
+register_cursor_backend("local", lambda s: FileCursorBackend(s))
+register_cursor_backend("memory", lambda s: MemoryCursorBackend())
 register_state_backend("local", lambda s: FileStateBackend(s))

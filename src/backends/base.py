@@ -26,7 +26,7 @@ class CursorBackend(ABC):
 
     @abstractmethod
     def health_check(self) -> bool:
-        """Return True if the cursor store is reachable."""
+        """Return True if the cursor store is reachable. Must never raise."""
 
 
 class StateBackend(ABC):
@@ -49,4 +49,4 @@ class StateBackend(ABC):
 
     @abstractmethod
     def health_check(self) -> bool:
-        """Return True if the state store is reachable."""
+        """Return True if the state store is reachable. Must never raise."""

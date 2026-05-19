@@ -5,10 +5,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import boto3
 import structlog
 from botocore.exceptions import ClientError
 
+from src.backends.aws.client import make_boto_client
 from src.backends.base import CursorBackend
 
 if TYPE_CHECKING:
@@ -19,7 +19,7 @@ log = structlog.get_logger()
 
 class SsmCursorBackend(CursorBackend):
     def __init__(self, settings: Settings) -> None:
-        self._client = boto3.client("ssm", region_name=settings.aws_region)
+        self._client = make_boto_client("ssm", settings)
         self._param = settings.ssm_cursor_param
 
     def get(self) -> str | None:

@@ -6,13 +6,22 @@
   <strong>Run history unavailable</strong> — state backend is not configured or unreachable. Check <code>CURSOR_BACKEND</code> / <code>STATE_BACKEND</code> settings.
 </div>
 {% endif %}
+{% if oauth_status == "success" %}
+<div style="background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.3);color:var(--green);padding:.75rem 1rem;border-radius:6px;margin-bottom:1.5rem;font-size:.875rem;">
+  <strong>Refresh token generated</strong> — NinjaOne OAuth refresh token was stored successfully.
+</div>
+{% elif oauth_status == "error" %}
+<div style="background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.3);color:var(--red);padding:.75rem 1rem;border-radius:6px;margin-bottom:1.5rem;font-size:.875rem;">
+  <strong>OAuth flow failed</strong>{% if oauth_error %} — {{ oauth_error }}{% endif %}
+</div>
+{% endif %}
 
 <!-- ── Action Bar ── -->
-<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem;">
-  <button class="btn btn-primary" onclick="openModal()">▶ Trigger Sync Now</button>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;">
   <span style="font-size:.8rem;color:var(--muted);">
     Auto-refreshes every {{ dashboard_auto_refresh_seconds }}s
   </span>
+  <button class="btn btn-primary" onclick="openModal('sync')">▶ Trigger Sync Now</button>
 </div>
 
 <!-- ── Two-column layout: main content + config panel ── -->
@@ -66,14 +75,14 @@
     <table>
       <thead>
         <tr>
-          <th>Run ID</th>
-          <th>Started</th>
-          <th>Duration</th>
-          <th>Fetched</th>
-          <th>Created</th>
-          <th>Updated</th>
-          <th>Deactivated</th>
-          <th>Errors</th>
+          <th title="Click to view per-event details">Run ID</th>
+          <th>Started At</th>
+          <th title="How long the sync run took to complete">Duration</th>
+          <th title="Total events fetched from WorkOS for this run">WrkOS Events</th>
+          <th title="Users created in the target system (e.g. NinjaOne)" style="color:var(--green);">Created</th>
+          <th title="Users updated in the target system" style="color:var(--blue);">Updated</th>
+          <th title="Users deactivated in the target system" style="color:var(--amber);">Deactivated</th>
+          <th title="Events that failed to process" style="color:var(--red);">Errors</th>
           <th>Status</th>
         </tr>
       </thead>
@@ -219,20 +228,130 @@
       </div>
     </dl>
 
-    <!-- Allowed Groups section -->
+    <div style="border-top:1px solid var(--border);padding:.7rem .9rem;">
+      <div style="color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.5rem;">
+        NinjaOne OAuth
+      </div>
+      {% set oauth_meta = config.ninjaone_oauth_refresh_meta %}
+      <table style="font-size:.75rem;width:100%;border-collapse:collapse;">
+        <tbody>
+          {% if config.ninjaone_oauth_last_flow_failed %}
+            <tr>
+              <td style="padding:.28rem 0;color:var(--muted);width:44%;">Status</td>
+              <td style="padding:.28rem 0;text-align:right;"><span class="pill pill-red" style="font-size:.68rem;">refresh failed</span></td>
+            </tr>
+            <tr>
+              <td style="padding:.28rem 0;color:var(--muted);vertical-align:top;">Error</td>
+              <td style="padding:.28rem 0;text-align:right;">
+                <span class="mono" style="color:var(--red);word-break:break-word;font-size:.68rem;">
+                  {{ config.ninjaone_oauth_last_error or "unknown_error" }}
+                </span>
+              </td>
+            </tr>
+          {% elif oauth_meta %}
+            {% set rem = oauth_meta.remaining_seconds %}
+            {% set rem_days = (rem // 86400) %}
+            {% set rem_hours = ((rem % 86400) // 3600) %}
+            <tr>
+              <td style="padding:.28rem 0;color:var(--muted);width:44%;">Status</td>
+              <td style="padding:.28rem 0;text-align:right;">
+                {% if rem >= 604800 %}
+                  <span class="pill pill-green" style="font-size:.68rem;">healthy</span>
+                {% elif rem >= 86400 %}
+                  <span class="pill pill-amber" style="font-size:.68rem;">expiring soon</span>
+                {% else %}
+                  <span class="pill pill-red" style="font-size:.68rem;">expired / urgent</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:.28rem 0;color:var(--muted);">Last generated</td>
+              <td style="padding:.28rem 0;text-align:right;">
+                <span class="mono" style="color:var(--text);font-size:.68rem;">{{ oauth_meta.generated_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:.28rem 0;color:var(--muted);">Expires in</td>
+              <td style="padding:.28rem 0;text-align:right;">
+                <span class="mono" style="color:var(--text);font-size:.68rem;">{{ rem_days }}d {{ rem_hours }}h</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:.28rem 0;color:var(--muted);">Expires at</td>
+              <td style="padding:.28rem 0;text-align:right;">
+                <span class="mono" style="color:var(--text);font-size:.68rem;">{{ oauth_meta.expires_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:.28rem 0;color:var(--muted);vertical-align:top;">Scope</td>
+              <td style="padding:.28rem 0;text-align:right;">
+                <span class="mono" style="color:var(--text);word-break:break-word;font-size:.68rem;">
+                  {{ oauth_meta.scope or "not_set" }}
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:.28rem 0;color:var(--muted);">Issuer</td>
+              <td style="padding:.28rem 0;text-align:right;">
+                <span class="mono" style="color:var(--text);font-size:.68rem;">{{ oauth_meta.issuer }}</span>
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td style="padding:.28rem 0;color:var(--muted);width:44%;">Status</td>
+              <td style="padding:.28rem 0;text-align:right;"><span class="pill pill-red" style="font-size:.68rem;">missing / expired</span></td>
+            </tr>
+            <tr>
+              <td style="padding:.28rem 0;color:var(--muted);">Details</td>
+              <td style="padding:.28rem 0;text-align:right;">
+                <span style="color:var(--muted);font-size:.72rem;">No refresh token record found.</span>
+              </td>
+            </tr>
+          {% endif %}
+          {% if oauth_meta and config.ninjaone_oauth_last_flow_failed %}
+            <tr>
+              <td style="padding:.28rem 0;color:var(--muted);vertical-align:top;">Scope</td>
+              <td style="padding:.28rem 0;text-align:right;">
+                <span class="mono" style="color:var(--text);word-break:break-word;font-size:.68rem;">
+                  {{ oauth_meta.scope or "not_set" }}
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:.28rem 0;color:var(--muted);">Last generated</td>
+              <td style="padding:.28rem 0;text-align:right;">
+                <span class="mono" style="color:var(--text);font-size:.68rem;">{{ oauth_meta.generated_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:.28rem 0;color:var(--muted);">Expires at</td>
+              <td style="padding:.28rem 0;text-align:right;">
+                <span class="mono" style="color:var(--text);font-size:.68rem;">{{ oauth_meta.expires_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>
+              </td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+      {% if config.ninjaone_oauth_web_enabled %}
+        <button class="btn btn-secondary btn-oauth" style="margin-top:.6rem;width:100%;" onclick="openModal('oauth')">Generate Refresh Token</button>
+      {% else %}
+        <button class="btn btn-secondary btn-oauth" style="margin-top:.6rem;width:100%;opacity:.6;cursor:not-allowed;" disabled>Generate Refresh Token</button>
+        <div style="margin-top:.35rem;color:var(--muted);font-size:.7rem;">
+          Disabled: configure <code>NINJAONE_OAUTH_REFRESH_TOKEN_SSM_PARAM</code> to enable web flow.
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Admin Group section -->
     <div style="border-top:1px solid var(--border);padding:.6rem .9rem .4rem;">
       <div style="color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem;">
-        Allowed Groups
-        <span style="font-size:.65rem;opacity:.65;text-transform:none;letter-spacing:0;margin-left:.35rem;">via {{ config.allowed_groups_source }}</span>
+        Admin Group
       </div>
-      {% if config.allowed_groups %}
-        <div style="display:flex;flex-direction:column;gap:.25rem;">
-          {% for g in config.allowed_groups %}
-            <span class="chip">{{ g }}</span>
-          {% endfor %}
-        </div>
+      {% if config.admin_group %}
+        <span class="chip">{{ config.admin_group }}</span>
+        <span style="color:var(--muted);font-size:.68rem;margin-left:.35rem;">create/update skipped</span>
       {% else %}
-        <span style="color:var(--muted);font-style:italic;font-size:.75rem;">All groups allowed</span>
+        <span style="color:var(--muted);font-style:italic;font-size:.75rem;">Not configured</span>
       {% endif %}
     </div>
 
@@ -249,14 +368,16 @@
           <thead>
             <tr>
               <th style="padding:.3rem .4rem .3rem 0;color:var(--muted);font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);">Group</th>
+              <th style="padding:.3rem .4rem;color:var(--muted);font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);">Org</th>
               <th style="padding:.3rem 0 .3rem .4rem;color:var(--muted);font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);">Role</th>
             </tr>
           </thead>
           <tbody>
-            {% for group, role in config.role_map.items() %}
+            {% for entry in config.role_map %}
             <tr>
-              <td style="padding:.35rem .4rem .35rem 0;border-bottom:1px solid rgba(48,54,61,.4);"><span class="chip">{{ group }}</span></td>
-              <td style="padding:.35rem 0 .35rem .4rem;border-bottom:1px solid rgba(48,54,61,.4);"><span class="mono" style="color:var(--text);">{{ role }}</span></td>
+              <td style="padding:.35rem .4rem .35rem 0;border-bottom:1px solid rgba(48,54,61,.4);"><span class="chip">{{ entry.google_workspace_group_name }}</span></td>
+              <td style="padding:.35rem .4rem;border-bottom:1px solid rgba(48,54,61,.4);"><span class="mono" style="color:var(--text);font-size:.68rem;">{{ entry.ninjaone_organization_name }}</span></td>
+              <td style="padding:.35rem 0 .35rem .4rem;border-bottom:1px solid rgba(48,54,61,.4);"><span class="mono" style="color:var(--text);">{{ entry.ninjaone_role }}</span></td>
             </tr>
             {% endfor %}
           </tbody>
@@ -287,18 +408,34 @@
 <!-- ── Trigger Modal ── -->
 <div class="modal-backdrop" id="modal">
   <div class="modal">
-    <h3>Trigger Sync</h3>
+    <h3 id="modalTitle">Trigger Sync</h3>
     <label for="apiKey">API Key</label>
     <input type="password" id="apiKey" placeholder="Enter X-API-Key" autocomplete="off" />
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="triggerSync()">Run Sync</button>
+      <button class="btn btn-primary" id="modalConfirmBtn" onclick="submitModalAction()">Run Sync</button>
     </div>
   </div>
 </div>
 
 <script>
-  function openModal() {
+  let modalAction = 'sync';
+
+  function openModal(action) {
+    if (window.__dashboardAutoRefreshTimer) {
+      clearTimeout(window.__dashboardAutoRefreshTimer);
+      window.__dashboardAutoRefreshTimer = null;
+    }
+    modalAction = action || 'sync';
+    const title = document.getElementById('modalTitle');
+    const btn = document.getElementById('modalConfirmBtn');
+    if (modalAction === 'oauth') {
+      title.textContent = 'Generate Refresh Token';
+      btn.textContent = 'Continue';
+    } else {
+      title.textContent = 'Trigger Sync';
+      btn.textContent = 'Run Sync';
+    }
     document.getElementById('modal').classList.add('open');
     setTimeout(() => document.getElementById('apiKey').focus(), 50);
   }
@@ -311,7 +448,7 @@
   });
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeModal();
-    if (e.key === 'Enter' && document.getElementById('modal').classList.contains('open')) triggerSync();
+    if (e.key === 'Enter' && document.getElementById('modal').classList.contains('open')) submitModalAction();
   });
 
   function showToast(msg, type) {
@@ -319,6 +456,14 @@
     t.textContent = msg;
     t.className = 'show ' + type;
     setTimeout(() => { t.className = ''; }, type === 'success' ? 6000 : 5000);
+  }
+
+  function submitModalAction() {
+    if (modalAction === 'oauth') {
+      startOAuth();
+      return;
+    }
+    triggerSync();
   }
 
   async function triggerSync() {
@@ -337,6 +482,30 @@
         setTimeout(() => location.reload(), 5000);
       } else {
         showToast('Error: ' + (data.detail || JSON.stringify(data)), 'error');
+      }
+    } catch (err) {
+      showToast('Network error: ' + err.message, 'error');
+    }
+  }
+
+  async function startOAuth() {
+    const key = document.getElementById('apiKey').value.trim();
+    if (!key) { showToast('API key is required', 'error'); return; }
+    if (window.__dashboardAutoRefreshTimer) {
+      clearTimeout(window.__dashboardAutoRefreshTimer);
+      window.__dashboardAutoRefreshTimer = null;
+    }
+    closeModal();
+    try {
+      const resp = await fetch('/dashboard/oauth/ninjaone/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+      });
+      const data = await resp.json();
+      if (resp.ok && data.authorize_url) {
+        window.location.href = data.authorize_url;
+      } else {
+        showToast('OAuth start failed: ' + (data.detail || JSON.stringify(data)), 'error');
       }
     } catch (err) {
       showToast('Network error: ' + err.message, 'error');

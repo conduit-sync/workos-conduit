@@ -3,9 +3,13 @@
 
 from __future__ import annotations
 
+import structlog
+
 from src.adapters.base import BaseTargetAdapter
 from src.core.models import HandlerResult
 from src.handlers.base import BaseEventHandler
+
+log = structlog.get_logger()
 
 
 class UserCreatedHandler(BaseEventHandler):
@@ -14,7 +18,15 @@ class UserCreatedHandler(BaseEventHandler):
 
     def handle(self, event: dict, adapter: BaseTargetAdapter) -> HandlerResult:
         user = self._workos_event_to_user(event["data"])
+        log.debug("handling_user_created", event_id=event["id"], email=user.email)
         result = adapter.provision_user_created(user)
         result.event_id = event["id"]
         result.event_type = event["event"]
+        log.info(
+            "user_created_handled",
+            event_id=event["id"],
+            email=user.email,
+            action=result.action.value,
+            duration_ms=result.duration_ms,
+        )
         return result

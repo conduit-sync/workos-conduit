@@ -23,11 +23,6 @@ class Settings(BaseSettings):
     sync_target_adapter: str = "ninjaone"
     sync_stop_on_error: bool = True
 
-    # Group allow-list (empty array = allow all groups through)
-    sync_allowed_groups: str = "[]"  # JSON array e.g. '["IT Admins","Support"]'
-    sync_allowed_groups_source: str = "env"  # "env" | "ssm"
-    sync_allowed_groups_ssm_param: str = "/workos-conduit/allowed-groups"
-
     # Backend selection
     cursor_backend: str = "aws"  # "aws" | "local"
     state_backend: str = "aws"  # "aws" | "local"
@@ -37,12 +32,24 @@ class Settings(BaseSettings):
 
     # NinjaOne (only required when adapter=ninjaone)
     ninjaone_base_url: str = "https://app.ninjarmm.com"
-    ninjaone_client_id: str = ""
-    ninjaone_client_secret: str = ""
-    ninjaone_org_id: str = ""
-    ninjaone_group_role_map: str = "{}"
+    ninjaone_oauth_client_id: str = ""
+    ninjaone_oauth_client_secret: str = ""
+    ninjaone_oauth_scope: str = "control offline_access monitoring management"
+    ninjaone_oauth_token_path: str = "/oauth/token"
+    ninjaone_oauth_authorize_path: str = "/oauth/authorize"
+    ninjaone_oauth_redirect_path: str = "/dashboard/oauth/ninjaone/callback"
+    ninjaone_oauth_refresh_token_ssm_param: str = (
+        "/workos-conduit/ninjaone/oauth-refresh-token"
+    )
+    ninjaone_oauth_refresh_token_lifetime_days: int = 30
+    # Deprecated compatibility shim for existing .env files.
+    ninjaone_api_key: str = ""
+    ninjaone_group_role_map: str = '{"organizations_groups_mapping": []}'
     ninjaone_group_role_map_source: str = "env"  # "env" | "ssm"
     ninjaone_group_role_map_ssm_param: str = "/workos-conduit/ninjaone/group-role-map"
+    ninjaone_group_admins: str = (
+        ""  # WorkOS group name whose members skip create/update
+    )
 
     # HTTP tuning
     http_timeout_seconds: int = 30
@@ -51,6 +58,10 @@ class Settings(BaseSettings):
 
     # AWS
     aws_region: str = "us-east-1"
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_session_token: str = ""  # only needed for temporary/STS credentials
+    aws_profile: str = ""  # optional; selects a named profile from ~/.aws/credentials
     ssm_cursor_param: str = "/workos-conduit/cursor"
     s3_state_bucket: str = ""
     s3_state_prefix: str = "runs/"
@@ -64,6 +75,7 @@ class Settings(BaseSettings):
     dashboard_enabled: bool = True
     dashboard_run_history_limit: int = 50
     dashboard_auto_refresh_seconds: int = 60
+    dashboard_public_base_url: str = ""
 
     # Logging
     log_level: str = "INFO"
@@ -75,14 +87,6 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_config(self) -> Settings:
-        if self.sync_target_adapter == "ninjaone":
-            if not self.ninjaone_client_id or not self.ninjaone_client_secret:
-                raise ValueError(
-                    "ninjaone_client_id and ninjaone_client_secret required "
-                    "when sync_target_adapter=ninjaone"
-                )
-        if self.state_backend == "aws" and not self.s3_state_bucket:
-            raise ValueError("s3_state_bucket required when state_backend=aws")
         if (
             self.ninjaone_group_role_map_source == "ssm"
             and not self.ninjaone_group_role_map_ssm_param
@@ -90,14 +94,6 @@ class Settings(BaseSettings):
             raise ValueError(
                 "ninjaone_group_role_map_ssm_param required "
                 "when ninjaone_group_role_map_source=ssm"
-            )
-        if (
-            self.sync_allowed_groups_source == "ssm"
-            and not self.sync_allowed_groups_ssm_param
-        ):
-            raise ValueError(
-                "sync_allowed_groups_ssm_param required "
-                "when sync_allowed_groups_source=ssm"
             )
         raw = self.workos_event_types.strip()
         if raw.startswith("["):

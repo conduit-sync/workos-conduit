@@ -45,9 +45,18 @@ async def trigger_sync(
     Requires X-API-Key header matching settings.api_secret_key.
     """
     if not x_api_key or x_api_key != settings.api_secret_key:
+        log.warning("sync_trigger_unauthorized", trigger_source=trigger.trigger_source)
         raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key")
 
+    log.info("sync_trigger_received", trigger_source=trigger.trigger_source)
     record = engine.run_cycle(trigger_source=trigger.trigger_source)
+    log.info(
+        "sync_trigger_complete",
+        run_id=record.run_id,
+        status=record.status.value,
+        events_processed=record.events_processed,
+        duration_seconds=record.duration_seconds,
+    )
     return TriggerResponse(
         run_id=record.run_id,
         status=record.status,
