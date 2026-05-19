@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import structlog
+
 from src.adapters.base import BaseTargetAdapter, ProvisioningGroup
-from src.config import get_settings
-from src.core.allowed_groups import load_allowed_groups
-from src.core.models import HandlerResult, SyncAction
+from src.core.models import HandlerResult
 from src.handlers.base import BaseEventHandler
+
+log = structlog.get_logger()
 
 
 class GroupMembershipHandler(BaseEventHandler):
@@ -17,21 +19,29 @@ class GroupMembershipHandler(BaseEventHandler):
     def handle(self, event: dict, adapter: BaseTargetAdapter) -> HandlerResult:
         data = event["data"]
         group_name = data["group"]["name"]
+        email = data["user"]["email"]
         action = "added" if event["event"] == "dsync.group.user_added" else "removed"
 
-        allowed = load_allowed_groups(get_settings())
-        if allowed and group_name not in allowed:
-            return HandlerResult(
-                event_id=event["id"],
-                event_type=event["event"],
-                action=SyncAction.SKIPPED,
-                target_adapter=adapter.adapter_key,
-                email=data["user"]["email"],
-            )
+        log.debug(
+            "handling_group_membership",
+            event_id=event["id"],
+            group=group_name,
+            email=email,
+            action=action,
+        )
 
         user = self._workos_event_to_user(data["user"])
         group = ProvisioningGroup(user=user, group_name=group_name, action=action)
         result = adapter.provision_group_membership(group)
         result.event_id = event["id"]
         result.event_type = event["event"]
+        log.info(
+            "group_membership_handled",
+            event_id=event["id"],
+            group=group_name,
+            email=email,
+            action=action,
+            result_action=result.action.value,
+            duration_ms=result.duration_ms,
+        )
         return result

@@ -1,6 +1,6 @@
 # Architecture
 
-WorkOS Conduit is a single-purpose provisioning bridge. It consumes WorkOS Directory Sync events produced when Google Workspace users and groups change, then applies those changes to a target system (NinjaOne by default). All state is append-only in AWS S3; no database is required. The application runs as a single-process FastAPI service on AWS ECS Fargate.
+WorkOS Conduit is a single-purpose provisioning bridge. It consumes WorkOS Directory Sync events produced when Google Workspace users and groups change, then applies those changes to a target system (NinjaOne by default). Cursor state is stored in SSM (or local file/memory in dev), and run records are append-only in S3 (or local files in dev); no database is required. The application runs as a single-process FastAPI service on AWS ECS Fargate.
 
 ---
 
@@ -24,16 +24,23 @@ Google Workspace
       │
       └─ For each event (sequential order preserved):
              │
-             ├─ EventRouter.route(event, adapter)
+             ├─ SyncEngine._process_event()
              │       │
-             │       └─ GroupMembershipHandler / UserCreatedHandler / ...
+             │       ├─ [dsync.user.created / dsync.user.updated only]
+             │       │       Group membership check via WorkOS API
+             │       │       Watched groups derived from adapter.watched_groups()
+             │       │       (role map keys from NINJAONE_GROUP_ROLE_MAP)
+             │       │       Skip if user not in any watched group
+             │       │       Skip if NINJAONE_GROUP_ADMINS set and user in admin group
+             │       │       (delete events bypass this check)
+             │       │
+             │       └─ EventRouter.route(event, adapter)
              │               │
-             │               ├─ [GroupMembership only] Allow-list check
-             │               │       Skip if group not in SYNC_ALLOWED_GROUPS
-             │               │
-             │               └─ BaseTargetAdapter.provision_*(user/group)
+             │               └─ GroupMembershipHandler / UserCreatedHandler / ...
              │                       │
-             │                       └─ NinjaOne REST API
+             │                       └─ BaseTargetAdapter.provision_*(user/group)
+             │                               │
+             │                               └─ NinjaOne REST API
              │
              ├─ On success: cursor_backend.save(event_id) → advance cursor
              └─ On error: record error; break (stop_on_error=true) or continue
@@ -170,9 +177,9 @@ NinjaOne registers itself when `src/adapters/ninjaone/__init__.py` is imported. 
 
 `src/adapters/ninjaone/adapter.py` — full implementation:
 
-- **Client** (`ninjaone/client.py`): HTTP client with token caching (60-second pre-expiry refresh), per-request retry (429 → sleep Retry-After, 5xx → exponential backoff, 4xx → raise immediately).
-- **Mapper** (`ninjaone/mapper.py`): converts `ProvisioningUser` → NinjaOne technician payload; maps WorkOS group name → NinjaOne role name via the role map.
-- **Role map** (`ninjaone/group_role_map.py`): loads `dict[group_name → role_name]` from env var or SSM.
+- **Client** (`ninjaone/client.py`): HTTP client with OAuth 2.0 auth. One-time `authorization_code` flow generates a 30-day refresh token stored in SSM SecureString; runtime calls exchange it at `/oauth/token` (`grant_type=refresh_token`) to mint bearer access tokens cached in-process. Per-request retry: 429 → sleep Retry-After, 5xx → exponential backoff, 4xx → raise immediately. A 401 response triggers one access-token refresh-and-retry.
+- **Mapper** (`ninjaone/mapper.py`): converts `ProvisioningUser` → NinjaOne end-user payload (`firstName`, `lastName`, `email`, `fullPortalAccess: false`, optional `organizationId`).
+- **Role map** (`ninjaone/group_role_map.py`): loads `dict[group_name → OrgGroupMapping]` from env var or SSM. Each `OrgGroupMapping` carries `ninjaone_organization_id` (UUID string), `google_workspace_group_name`, and `ninjaone_role`. Only `END_USER` role is processed; other roles log a warning and return `SKIPPED`. On `user_added`, the adapter creates the user with the mapped org ID or patches it if the org changed.
 
 ---
 
@@ -214,6 +221,23 @@ health_check() → bool
 - `list_recent_runs()`: fetches all objects under the prefix, deserialises each, sorts by `started_at` descending, returns first `limit`
 - Append-only: there is no delete or update operation in the codebase
 
+### Local Implementations
+
+**FileCursorBackend** (`src/backends/local/cursor_file.py`):
+- Persists cursor to `{LOCAL_STATE_DIR}/cursor.txt`
+- Survives server restarts — delete the file to reset the cursor
+- Registered under key `"local"`
+
+**MemoryCursorBackend** (`src/backends/local/cursor_memory.py`):
+- In-process only; resets on restart
+- Registered under key `"memory"` — intended for unit tests
+
+**FileStateBackend** (`src/backends/local/state_file.py`):
+- Writes one JSON file per run to `{LOCAL_STATE_DIR}/runs/`
+- File naming: `YYYYMMDDHHMMSS_{run_id[:8]}.json` — timestamp prefix makes `ls` output human-readable and naturally sorted
+- `list_recent_runs()`: sorts by filename descending, slices to `limit` before loading — avoids reading all files just to sort
+- Registered under key `"local"`
+
 ---
 
 ## Handler Pattern
@@ -230,6 +254,17 @@ _workos_event_to_user(event_data: dict) → ProvisioningUser  # shared utility
 
 `_workos_event_to_user` extracts: `email`, `first_name`, `last_name`, `is_active` (from `state=="active"`), `department`/`job_title` from `custom_attributes`, `external_id` from `id`.
 
+### Handler Registry
+
+`src/handlers/registry.py` registers handler classes and instantiates them on demand — the same factory pattern used by adapters and backends.
+
+```python
+register_handler(cls)   # called for each handler class in registry.py
+get_handlers()          # returns [cls() for cls in _HANDLERS] — used by deps.get_event_router()
+```
+
+Adding a new event handler requires only creating the handler module and calling `register_handler` in `registry.py` — no changes to `deps.py` or any other core file.
+
 ### EventRouter
 
 `src/core/event_router.py` receives a list of handlers at construction. `route(event, adapter)`:
@@ -243,24 +278,37 @@ _workos_event_to_user(event_data: dict) → ProvisioningUser  # shared utility
 
 ## Group Filtering and Role Mapping
 
-Two independent filter layers apply to group events before any NinjaOne API call is made:
+Two independent filter layers apply before any NinjaOne API call is made:
 
-**Layer 1 — Allow-list** (in `GroupMembershipHandler`, `src/handlers/group_membership.py`):
+**Layer 0 — User event group check** (in `SyncEngine._process_event`, `src/core/sync_engine.py`):
 
-Checks `SYNC_ALLOWED_GROUPS` before even calling the adapter. If the list is non-empty and the group name is not in it, returns `SyncAction.SKIPPED` immediately. An empty list (`[]`) means allow all — this is the default.
+For `dsync.user.created` and `dsync.user.updated` events, the engine calls the WorkOS API to get the user's groups. The watched groups are derived from `adapter.watched_groups()`, which returns the role map keys from `NINJAONE_GROUP_ROLE_MAP`. If the user is not in any watched group, the event is skipped before being routed to any handler. Additionally, if `NINJAONE_GROUP_ADMINS` is set and the user belongs to that group, the event is also skipped — admin users are managed separately. Delete events (`dsync.user.deleted`) bypass both checks — deactivation always proceeds if the user exists.
 
-**Layer 2 — Role map** (in `NinjaOneAdapter`, `src/adapters/ninjaone/adapter.py`):
+A per-cycle group membership prefetch runs upfront (batch WorkOS queries before any NinjaOne calls) when `watched_groups` or `admin_group` is configured, covering all users seen in the cycle. A per-cycle group cache (`dict[user_id → list[group_names]]`) prevents duplicate WorkOS API calls within one cycle.
 
-If the group passes the allow-list, the adapter looks it up in `NINJAONE_GROUP_ROLE_MAP`. If the group has no role mapping, returns `SyncAction.SKIPPED`. This is NinjaOne-specific because other adapters may handle group membership differently.
+**Layer 1 — Org+role map** (in `NinjaOneAdapter`, `src/adapters/ninjaone/adapter.py`):
+
+The adapter looks up the group in `NINJAONE_GROUP_ROLE_MAP` (which holds `OrgGroupMapping` objects). If the group has no entry, returns `SyncAction.SKIPPED`. If the mapped role is not `END_USER`, returns `SKIPPED` with a `WARNING` log. For `action=added`, the adapter also checks whether the user's `organizationId` matches the mapping — patching it if it changed. This is the final filter layer — there is no separate allow-list layer between the engine and the adapter for group events.
 
 ```
+dsync.user.created / dsync.user.updated event
+        │
+        ▼
+  SyncEngine._process_event()
+        │
+        ├─ NINJAONE_GROUP_ADMINS set and user in admin group?
+        │       Yes → SKIPPED (admin users managed separately)
+        │
+        ├─ adapter.watched_groups() non-empty?
+        │       Yes → user in any watched group? No → SKIPPED (engine level)
+        │
+        ▼
+  UserCreatedHandler / UserUpdatedHandler → NinjaOneAdapter
+
 dsync.group.user_added event
         │
         ▼
   GroupMembershipHandler.handle()
-        │
-        ├─ SYNC_ALLOWED_GROUPS non-empty?
-        │       Yes → group in list? No → SKIPPED (handler level)
         │
         ▼
   NinjaOneAdapter.provision_group_membership()
@@ -268,13 +316,18 @@ dsync.group.user_added event
         ├─ Group in NINJAONE_GROUP_ROLE_MAP?
         │       No → SKIPPED (adapter level)
         │
-        ├─ User exists in NinjaOne?
-        │       No → NOT_FOUND_SKIPPED
+        ├─ Mapped role == END_USER?
+        │       No → SKIPPED + WARNING log (unsupported role)
         │
-        └─ update_technician(role) → ROLE_ASSIGNED
+        ├─ User exists in NinjaOne?
+        │       No → create end-user with mapped organizationId → CREATED
+        │       Yes, org matches → SKIPPED
+        │       Yes, org differs → PATCH organizationId → UPDATED
+        │
+        └─ action==removed → deactivate_end_user() → DEACTIVATED
 ```
 
-Both maps can be loaded from an env var (default) or SSM Parameter Store without a redeploy. See [configuration.md](configuration.md) for details.
+Both maps can be loaded from an env var (default) or SSM Parameter Store without a redeploy. See [configuration.md](configuration.md) for the full JSON format and field descriptions.
 
 ---
 
@@ -298,7 +351,7 @@ Both maps can be loaded from an env var (default) or SSM Parameter Store without
 | `results` | `list[HandlerResult]` | One per event |
 | `errors` | `list[RunError]` | Structured errors with tracebacks |
 
-The `counts` property aggregates `results` into `dict[SyncAction, int]` for quick summary display.
+The `counts` property aggregates `results` into `dict[SyncAction, int]` for a single run. The `aggregate_counts(runs)` classmethod aggregates across a list of runs — used by the dashboard.
 
 ### SyncAction values
 
@@ -307,9 +360,9 @@ The `counts` property aggregates `results` into `dict[SyncAction, int]` for quic
 | `created` | New user provisioned in target |
 | `updated` | Existing user updated |
 | `deactivated` | User soft-disabled in target |
-| `skipped` | User already exists / group not in allow-list or role map |
+| `skipped` | User already exists / group not in role map / user filtered by group check |
 | `no_change` | Update requested but no diff detected |
-| `role_assigned` | Group membership → role applied in target |
+| `role_assigned` | Reserved for future role-assignment flows (not currently emitted) |
 | `not_found_skipped` | User not found in target; skip rather than error |
 | `already_inactive` | Deactivation requested but user already inactive |
 | `error` | Handler raised an exception |

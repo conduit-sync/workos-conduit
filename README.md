@@ -11,7 +11,7 @@ Google Workspace → WorkOS → workos-conduit → NinjaOne (+ future targets)
 - **Pluggable adapters**: NinjaOne ships today. Add Zendesk, Freshservice, Jira SM by implementing one class.
 - **Pluggable cloud backends**: AWS SSM + S3 today. Azure / GCS / local filesystem via the same registry pattern.
 - **API-driven sync**: No internal timer. Trigger via `POST /api/v1/sync/trigger` from EventBridge, cron, or the built-in dashboard.
-- **Immutable audit log**: Every run is written to S3 as append-only JSON — no database needed.
+- **Immutable audit log**: Every run is written to S3 (or local filesystem) as append-only JSON — no database needed.
 - **Built-in dashboard**: Dark-mode HTML dashboard served by FastAPI. Trigger sync, browse run history, inspect errors.
 - **Stdout-first JSON logs**: CloudWatch, Datadog, and Splunk consume stdout unchanged via the ECS `awslogs` driver.
 - **GPL-3.0**: All contributions stay open source.
@@ -37,13 +37,20 @@ Key variables:
 | `WORKOS_API_KEY` | required | WorkOS API key |
 | `WORKOS_DIRECTORY_ID` | required | WorkOS directory ID |
 | `SYNC_TARGET_ADAPTER` | `ninjaone` | Target adapter key |
-| `CURSOR_BACKEND` | `aws` | Cursor persistence backend |
-| `STATE_BACKEND` | `aws` | Run record persistence backend |
+| `NINJAONE_OAUTH_CLIENT_ID` | required (ninjaone) | NinjaOne OAuth app client ID |
+| `NINJAONE_OAUTH_CLIENT_SECRET` | required (ninjaone) | NinjaOne OAuth app client secret |
+| `NINJAONE_OAUTH_REFRESH_TOKEN_SSM_PARAM` | `/workos-conduit/ninjaone/oauth-refresh-token` | SecureString parameter storing refresh-token payload |
+| `DASHBOARD_PUBLIC_BASE_URL` | required for dashboard OAuth flow | Public base URL used to build OAuth callback URI |
+| `CURSOR_BACKEND` | `aws` | Cursor persistence: `aws` (SSM), `local` (file, survives restarts), `memory` (in-process only) |
+| `STATE_BACKEND` | `aws` | Run record persistence: `aws` (S3) or `local` (filesystem under `LOCAL_STATE_DIR`) |
+| `LOCAL_STATE_DIR` | `.local-state` | Root dir for local backends. Cursor: `cursor.txt`. Runs: `runs/YYYYMMDDHHMMSS_{id}.json` |
 | `API_SECRET_KEY` | required | `X-API-Key` header value for `/sync/trigger` |
 | `S3_STATE_BUCKET` | required (aws) | S3 bucket for run records |
 | `SYNC_STOP_ON_ERROR` | `true` | Stop on first error (retry next cycle) vs continue |
 | `LOG_FORMAT` | `json` | `json` for production, `console` for local dev |
 | `DASHBOARD_ENABLED` | `true` | Enable built-in HTML dashboard |
+
+For the complete OAuth setup, callback URI format, and refresh-token rotation workflow, see [docs/configuration.md](docs/configuration.md).
 
 ## API
 
@@ -56,6 +63,8 @@ Key variables:
 | `GET` | `/health/` | Liveness (always 200) |
 | `GET` | `/health/ready` | Readiness (checks adapter + backends) |
 | `GET` | `/` | Dashboard HTML |
+| `POST` | `/dashboard/oauth/ninjaone/start` | Starts dashboard OAuth flow, returns `authorize_url` (`X-API-Key` required) |
+| `GET` | `/dashboard/oauth/ninjaone/callback` | OAuth callback endpoint that exchanges code and stores refresh token in SSM |
 
 ## AWS Deployment
 

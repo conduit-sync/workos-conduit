@@ -12,10 +12,7 @@ from src.backends.registry import get_cursor_backend, get_state_backend
 from src.config import Settings, get_settings
 from src.core.event_router import EventRouter
 from src.core.sync_engine import SyncEngine
-from src.handlers.group_membership import GroupMembershipHandler
-from src.handlers.user_created import UserCreatedHandler
-from src.handlers.user_deleted import UserDeletedHandler
-from src.handlers.user_updated import UserUpdatedHandler
+from src.handlers.registry import get_handlers
 from src.workos.client import WorkOSEventsClient
 
 
@@ -36,14 +33,7 @@ def get_adapter_dep(settings: Settings = Depends(get_settings)) -> BaseTargetAda
 
 
 def get_event_router() -> EventRouter:
-    return EventRouter(
-        handlers=[
-            UserCreatedHandler(),
-            UserUpdatedHandler(),
-            UserDeletedHandler(),
-            GroupMembershipHandler(),
-        ]
-    )
+    return EventRouter(handlers=get_handlers())
 
 
 def get_sync_engine(

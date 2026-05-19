@@ -28,7 +28,8 @@ class FileStateBackend(StateBackend):
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def write_run(self, record: RunRecord) -> str:
-        path = self._dir / f"{record.run_id}.json"
+        ts = record.started_at.strftime("%Y%m%d%H%M%S")
+        path = self._dir / f"{ts}_{record.run_id[:8]}.json"
         path.write_text(record.model_dump_json())
         log.debug("run_written", run_id=record.run_id, path=str(path))
         return str(path)
@@ -36,22 +37,23 @@ class FileStateBackend(StateBackend):
     def get_run(self, run_id: str) -> RunRecord | None:
         from src.core.models import RunRecord as RR
 
-        path = self._dir / f"{run_id}.json"
-        if not path.exists():
-            return None
-        return RR.model_validate_json(path.read_text())
+        for path in self._dir.glob(f"*_{run_id[:8]}.json"):
+            record = RR.model_validate_json(path.read_text())
+            if record.run_id == run_id:
+                return record
+        return None
 
     def list_recent_runs(self, limit: int) -> list[RunRecord]:
         from src.core.models import RunRecord as RR
 
+        paths = sorted(self._dir.glob("*.json"), reverse=True)
         records = []
-        for path in self._dir.glob("*.json"):
+        for path in paths[:limit]:
             try:
                 records.append(RR.model_validate_json(path.read_text()))
             except Exception:
                 log.warning("run_file_unreadable", path=str(path))
-        records.sort(key=lambda r: r.started_at, reverse=True)
-        return records[:limit]
+        return records
 
     def health_check(self) -> bool:
         return self._dir.exists()

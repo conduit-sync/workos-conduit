@@ -57,21 +57,24 @@ These must be set to real values for the app to start:
 |---|---|
 | `WORKOS_API_KEY` | WorkOS dashboard → API Keys |
 | `WORKOS_DIRECTORY_ID` | WorkOS dashboard → Directory Sync → your directory |
-| `NINJAONE_CLIENT_ID` | NinjaOne → Administration → Apps & API → API |
-| `NINJAONE_CLIENT_SECRET` | Same as above |
-| `NINJAONE_ORG_ID` | NinjaOne organisation ID (visible in the URL) |
+| `NINJAONE_OAUTH_CLIENT_ID` | NinjaOne OAuth app settings |
+| `NINJAONE_OAUTH_CLIENT_SECRET` | NinjaOne OAuth app settings |
+| `NINJAONE_GROUP_ROLE_MAP` | JSON string with `organizations_groups_mapping` array — see [configuration.md](configuration.md) for format. Organization UUIDs visible in NinjaOne → Administration → Organizations. |
 
 ### Running the dev server without AWS (recommended for local dev)
 
-Set `CURSOR_BACKEND=local` and `STATE_BACKEND=local` in your `.env`. This uses an in-memory cursor and a local filesystem state store — no AWS credentials needed.
+Set `CURSOR_BACKEND=local` and `STATE_BACKEND=local` in your `.env`. This uses a file-backed cursor and a local filesystem state store — no AWS credentials needed.
 
 Minimum `.env` for `make dev`:
 
 ```bash
 WORKOS_API_KEY=sk_test_placeholder
 WORKOS_DIRECTORY_ID=directory_test
-NINJAONE_CLIENT_ID=test_client_id
-NINJAONE_CLIENT_SECRET=test_client_secret
+NINJAONE_OAUTH_CLIENT_ID=your_client_id
+NINJAONE_OAUTH_CLIENT_SECRET=your_client_secret
+NINJAONE_OAUTH_SCOPE=control offline_access monitoring management
+NINJAONE_OAUTH_REFRESH_TOKEN_SSM_PARAM=/workos-conduit/ninjaone/oauth-refresh-token
+NINJAONE_GROUP_ROLE_MAP={"organizations_groups_mapping": [{"ninjaone_organization_name": "My Org", "ninjaone_organization_id": "your-org-uuid-here", "google_workspace_group_name": "ninjaone-users", "ninjaone_role": "END_USER"}]}
 CURSOR_BACKEND=local
 STATE_BACKEND=local
 API_SECRET_KEY=local-dev-key
@@ -79,7 +82,22 @@ LOG_FORMAT=console
 LOG_LEVEL=DEBUG
 ```
 
-Run records are written to `.local-state/runs/` (gitignored). The cursor resets to zero on every server restart.
+Run records are written to `.local-state/runs/` as `YYYYMMDDHHMMSS_{run_id[:8]}.json` (gitignored). The cursor is persisted to `.local-state/cursor.txt` and **survives server restarts** — events already processed will not be re-processed.
+
+To reset the cursor and reprocess all events from the beginning, delete `.local-state/cursor.txt`.
+
+Available backend options:
+
+| `CURSOR_BACKEND` | Persistence |
+|---|---|
+| `aws` | SSM Parameter Store (production) |
+| `local` | `.local-state/cursor.txt` — survives restarts |
+| `memory` | In-process only — resets on every restart (for unit tests) |
+
+| `STATE_BACKEND` | Persistence |
+|---|---|
+| `aws` | S3 (production) |
+| `local` | `.local-state/runs/YYYYMMDDHHMMSS_{id}.json` |
 
 ### Running the dev server with real AWS
 
@@ -101,8 +119,8 @@ If you only want to run the test suite, the `.env` values below are sufficient. 
 ```bash
 WORKOS_API_KEY=sk_test_placeholder
 WORKOS_DIRECTORY_ID=directory_test
-NINJAONE_CLIENT_ID=test_client_id
-NINJAONE_CLIENT_SECRET=test_client_secret
+NINJAONE_OAUTH_CLIENT_ID=test_client_id
+NINJAONE_OAUTH_CLIENT_SECRET=test_client_secret
 CURSOR_BACKEND=local
 STATE_BACKEND=local
 API_SECRET_KEY=local-dev-key
@@ -224,6 +242,36 @@ curl -s "http://localhost:8080/api/v1/runs/?limit=5" | jq
 
 Open [http://localhost:8080/](http://localhost:8080/) in a browser. The dashboard shows run history, action breakdown, and a "Trigger Sync Now" button that prompts for the API key.
 
+### Mint your first refresh token
+
+After starting the app with valid OAuth client credentials, generate a refresh token:
+
+```bash
+python scripts/ninjaone_oauth_bootstrap.py --write-ssm
+```
+
+This launches a browser flow, captures the callback on localhost, and writes the refresh token payload to `NINJAONE_OAUTH_REFRESH_TOKEN_SSM_PARAM`.
+
+### Dashboard callback URI setup (required for web button flow)
+
+If you use the dashboard **Generate Refresh Token** button, NinjaOne must redirect back to this app:
+
+1. Set in `.env`:
+
+```bash
+DASHBOARD_PUBLIC_BASE_URL=http://localhost:8080
+# Optional override; default is already correct:
+# NINJAONE_OAUTH_REDIRECT_PATH=/dashboard/oauth/ninjaone/callback
+```
+
+2. Register this exact callback URI in NinjaOne OAuth app settings:
+
+```text
+http://localhost:8080/dashboard/oauth/ninjaone/callback
+```
+
+The callback implementation is in `src/dashboard/oauth_router.py` at `GET /dashboard/oauth/ninjaone/callback`.
+
 ---
 
 ## Running the Test Suite
@@ -253,13 +301,13 @@ pytest --cov=src --cov-report=xml --cov-report=term-missing -v
 
 ```bash
 # Run a specific file
-.venv/bin/pytest tests/unit/test_allowed_groups.py -v
+.venv/bin/pytest tests/unit/test_sync_engine.py -v
 
 # Run a specific test function
-.venv/bin/pytest tests/unit/test_allowed_groups.py::test_load_from_env_returns_parsed_list -v
+.venv/bin/pytest tests/unit/test_oauth_router.py::test_oauth_start_requires_api_key -v
 
 # Run tests matching a keyword
-.venv/bin/pytest -k "allowed_groups" -v
+.venv/bin/pytest -k "group_role_map" -v
 ```
 
 ### Coverage report
@@ -303,13 +351,15 @@ The project uses ruff with rules `E, F, I, UP, B` (minus `B008` which conflicts 
 
 ## Testing Group Filtering Locally
 
-To verify the allow-list feature without a live NinjaOne instance:
+To verify org-mapping and group filtering features without a live NinjaOne instance:
 
-**1. Set the allow-list in `.env`:**
+**1. Set the role map in `.env`:**
 
 ```bash
-SYNC_ALLOWED_GROUPS=["IT Admins"]
+NINJAONE_GROUP_ROLE_MAP={"organizations_groups_mapping": [{"ninjaone_organization_name": "Test Org", "ninjaone_organization_id": "uuid-test-001", "google_workspace_group_name": "ninjaone-users", "ninjaone_role": "END_USER"}]}
 ```
+
+Filtering is entirely driven by `NINJAONE_GROUP_ROLE_MAP`. Users in groups not listed in the role map are automatically skipped at the engine level — no separate allow-list variable is needed.
 
 **2. Trigger a sync:**
 
@@ -320,25 +370,21 @@ curl -s -X POST http://localhost:8080/api/v1/sync/trigger \
   -d '{}' | jq .run_id
 ```
 
-**3. Check the run detail for SKIPPED results:**
+**3. Check the run detail for SKIPPED vs CREATED results:**
 
 ```bash
-curl -s http://localhost:8080/api/v1/runs/RUN_ID_HERE | jq '.results[] | select(.action == "skipped")'
+curl -s http://localhost:8080/api/v1/runs/RUN_ID_HERE | jq '.results[] | {action, email, changed_fields}'
 ```
 
-Group events where the group name is not "IT Admins" will appear with `action: "skipped"` and will not have called the NinjaOne API.
-
-**4. Verify empty list allows all:**
-
-```bash
-SYNC_ALLOWED_GROUPS=[]  # in .env — all groups pass through
-```
+Group events where the group name is not mapped in `NINJAONE_GROUP_ROLE_MAP` will appear with `action: "skipped"`. Group events for a mapped group will show `action: "created"` (new user) or `action: "updated"` (org changed).
 
 ---
 
 ## Bootstrap Script
 
 The bootstrap script (`scripts/bootstrap.py`) is a one-time tool for importing all existing Google Workspace users from WorkOS into NinjaOne before you deploy the event-driven sync. Run it once before enabling the ECS service.
+
+> Current status: this script still references legacy `SYNC_ALLOWED_GROUPS` settings that were removed from `src/config.py`. Until the script is updated, it may fail with `AttributeError` when resolving group filters.
 
 ```bash
 # Dry run — shows what would be created without making any API calls
@@ -360,6 +406,7 @@ Processing users from WorkOS directory: directory_01...
   WOULD SKIP   carol@example.com (already exists)
 
 Summary: 2 would-create, 1 would-skip, 0 errors
+Filtered out: 1 (not in allowed groups)
 ```
 
 The script paginates through all WorkOS directory users and calls `adapter.provision_user_created()` for each one. Since `provision_user_created` is idempotent (returns `SKIPPED` if the user already exists), it is safe to run multiple times.

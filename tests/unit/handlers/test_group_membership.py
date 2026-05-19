@@ -3,7 +3,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from src.adapters.base import BaseTargetAdapter
-from src.config import get_settings
 from src.core.models import HandlerResult, SyncAction
 from src.handlers.group_membership import GroupMembershipHandler
 
@@ -60,44 +59,12 @@ def test_group_removed_calls_adapter():
     adapter = _make_adapter(SyncAction.ROLE_ASSIGNED)
     GroupMembershipHandler().handle(_make_event("dsync.group.user_removed"), adapter)
     adapter.provision_group_membership.assert_called_once()
-    # group action in ProvisioningGroup should be "removed"
     call_args = adapter.provision_group_membership.call_args[0][0]
     assert call_args.action == "removed"
 
 
-# ---------------------------------------------------------------------------
-# Group allow-list filtering
-# ---------------------------------------------------------------------------
-
-
-def test_group_not_in_allowed_list_is_skipped(monkeypatch):
-    monkeypatch.setenv("SYNC_ALLOWED_GROUPS", '["Other Group"]')
-    get_settings.cache_clear()
-    adapter = _make_adapter(SyncAction.ROLE_ASSIGNED)
-    result = GroupMembershipHandler().handle(
-        _make_event("dsync.group.user_added"), adapter
-    )
-    assert result.action == SyncAction.SKIPPED
-    adapter.provision_group_membership.assert_not_called()
-
-
-def test_group_in_allowed_list_passes_through(monkeypatch):
-    monkeypatch.setenv("SYNC_ALLOWED_GROUPS", '["IT Admins"]')
-    get_settings.cache_clear()
-    adapter = _make_adapter(SyncAction.ROLE_ASSIGNED)
-    result = GroupMembershipHandler().handle(
-        _make_event("dsync.group.user_added"), adapter
-    )
-    assert result.action == SyncAction.ROLE_ASSIGNED
-    adapter.provision_group_membership.assert_called_once()
-
-
-def test_empty_allowed_list_passes_all_groups(monkeypatch):
-    monkeypatch.setenv("SYNC_ALLOWED_GROUPS", "[]")
-    get_settings.cache_clear()
-    adapter = _make_adapter(SyncAction.ROLE_ASSIGNED)
-    result = GroupMembershipHandler().handle(
-        _make_event("dsync.group.user_added"), adapter
-    )
-    assert result.action == SyncAction.ROLE_ASSIGNED
+def test_handler_always_delegates_to_adapter():
+    """Group filtering is the adapter's responsibility — handler never skips by group name."""
+    adapter = _make_adapter(SyncAction.SKIPPED)
+    GroupMembershipHandler().handle(_make_event("dsync.group.user_added"), adapter)
     adapter.provision_group_membership.assert_called_once()

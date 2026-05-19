@@ -19,22 +19,22 @@ def _make_user(is_active: bool = True) -> ProvisioningUser:
     )
 
 
-def test_active_user_enabled_true():
-    payload = workos_to_ninjaone(_make_user(is_active=True))
-    assert payload["enabled"] is True
-
-
-def test_inactive_user_enabled_false():
-    payload = workos_to_ninjaone(_make_user(is_active=False))
-    assert payload["enabled"] is False
-
-
 def test_required_fields_present():
     payload = workos_to_ninjaone(_make_user())
-    assert "firstName" in payload
-    assert "lastName" in payload
-    assert "email" in payload
-    assert payload["userType"] == "TECHNICIAN"
+    assert payload["firstName"] == "Alice"
+    assert payload["lastName"] == "Smith"
+    assert payload["email"] == "alice@example.com"
+    assert payload["fullPortalAccess"] is False
+
+
+def test_org_id_included_when_provided():
+    payload = workos_to_ninjaone(_make_user(), org_id=42)
+    assert payload["organizationId"] == 42
+
+
+def test_org_id_omitted_when_none():
+    payload = workos_to_ninjaone(_make_user(), org_id=None)
+    assert "organizationId" not in payload
 
 
 def test_no_custom_attributes_does_not_raise():

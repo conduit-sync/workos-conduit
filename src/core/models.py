@@ -70,3 +70,12 @@ class RunRecord(BaseModel):
         for result in self.results:
             totals[result.action.value] = totals.get(result.action.value, 0) + 1
         return totals
+
+    @classmethod
+    def aggregate_counts(cls, runs: list[RunRecord]) -> dict[str, int]:
+        """Aggregates SyncAction counts across multiple RunRecords."""
+        totals: dict[str, int] = {action.value: 0 for action in SyncAction}
+        for run in runs:
+            for k, v in run.counts.items():
+                totals[k] = totals.get(k, 0) + v
+        return totals

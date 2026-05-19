@@ -28,16 +28,63 @@ Look for a `ValueError` from `validate_config`. Common messages:
 
 | Error message | Missing variable |
 |---|---|
-| `ninjaone_client_id and ninjaone_client_secret required` | `NINJAONE_CLIENT_ID` or `NINJAONE_CLIENT_SECRET` |
+| `ninjaone_oauth_client_id is required when sync_target_adapter=ninjaone` | `NINJAONE_OAUTH_CLIENT_ID` |
+| `ninjaone_oauth_client_secret is required when sync_target_adapter=ninjaone` | `NINJAONE_OAUTH_CLIENT_SECRET` |
 | `s3_state_bucket required when state_backend=aws` | `S3_STATE_BUCKET` |
-| `sync_allowed_groups_ssm_param required` | `SYNC_ALLOWED_GROUPS_SSM_PARAM` (when source=ssm) |
 | `ninjaone_group_role_map_ssm_param required` | `NINJAONE_GROUP_ROLE_MAP_SSM_PARAM` (when source=ssm) |
 
-**Fix**: Set the missing variable in your ECS task definition or Secrets Manager and redeploy. For Secrets Manager variables (`WORKOS_API_KEY`, `NINJAONE_CLIENT_ID`, `NINJAONE_CLIENT_SECRET`, `API_SECRET_KEY`), ensure the ECS task role has `secretsmanager:GetSecretValue`.
+**Fix**: Set the missing variable in your ECS task definition or Secrets Manager and redeploy. For Secrets Manager variables (`WORKOS_API_KEY`, `NINJAONE_OAUTH_CLIENT_SECRET`, `API_SECRET_KEY`), ensure the ECS task role has `secretsmanager:GetSecretValue`.
 
 ---
 
-## 2. Every run returns `status: error` — same event keeps failing
+## 2. NinjaOne refresh token expired / missing
+
+**Symptom**: Sync attempts fail with `invalid_grant`, `NinjaOne refresh token is missing`, or dashboard OAuth callback returns `oauth_status=error`.
+
+**Likely cause**: The 30-day refresh token expired, was never generated, or callback configuration is wrong.
+
+**Diagnosis**:
+
+- Check run errors from dashboard or `/api/v1/runs/{run_id}` for `invalid_grant`.
+- Verify the SSM parameter exists:
+
+```bash
+aws ssm get-parameter \
+  --name /workos-conduit/ninjaone/oauth-refresh-token \
+  --with-decryption
+```
+
+- If dashboard callback fails, confirm `DASHBOARD_PUBLIC_BASE_URL` exactly matches the redirect URI configured in the NinjaOne OAuth app.
+
+**Fix**:
+
+1. Regenerate via dashboard: click **Generate Refresh Token** and complete the browser flow.
+2. If dashboard is unavailable, run:
+
+```bash
+python scripts/ninjaone_oauth_bootstrap.py --write-ssm
+```
+
+3. Retry a sync after the new token is stored.
+
+---
+
+## 2a. Dashboard shows `dashboard_oauth_store_unreachable` with JSON parse error
+
+**Symptom**: Logs repeatedly show `dashboard_oauth_store_unreachable` with `Expecting value: line 1 column 1`.
+
+**Likely cause**: `NINJAONE_OAUTH_REFRESH_TOKEN_SSM_PARAM` contains legacy plain-string token data instead of the new JSON payload format.
+
+**Fix**:
+
+1. Regenerate a token via dashboard **Generate Refresh Token** (recommended), or:
+2. Run `python scripts/ninjaone_oauth_bootstrap.py --write-ssm` to rewrite the SSM parameter using the JSON envelope format.
+
+This warning is non-fatal; sync can still run, but dashboard metadata (generated/expiry timestamps) may be incomplete until the parameter is rewritten.
+
+---
+
+## 3. Every run returns `status: error` — same event keeps failing
 
 **Symptom**: Dashboard shows `status: error` on every run. The `errors` array in the run detail always contains the same event ID. The sync is stuck.
 
@@ -63,7 +110,7 @@ The `error_message` in the errors array will identify the root cause (NinjaOne A
 
 ---
 
-## 3. Manually advancing the cursor (break out of a retry loop)
+## 4. Manually advancing the cursor (break out of a retry loop)
 
 **Symptom**: A specific WorkOS event is permanently broken (e.g. malformed data, deleted user) and will never succeed. You need to skip it without fixing the underlying event.
 
@@ -103,7 +150,7 @@ curl -s -X POST http://localhost:8080/api/v1/sync/trigger \
 
 ---
 
-## 4. `status: partial_failure` — reading errors from run detail
+## 5. `status: partial_failure` — reading errors from run detail
 
 **Symptom**: Dashboard shows `status: partial_failure`. Some events were processed; others failed. The cycle completed.
 
@@ -222,61 +269,40 @@ aws iam list-role-policies --role-name $ROLE_NAME
 
 ---
 
-## 8. `SYNC_ALLOWED_GROUPS` not filtering as expected
+## 8. Group events returning `skipped` unexpectedly
 
-**Symptom**: Groups you expected to be skipped are still being processed. Or all group events are being skipped even though the list should allow them.
+**Symptom**: Group events (`dsync.group.user_added`, `dsync.group.user_removed`) are returning `action: skipped` for groups you expect to be processed.
+
+**Cause**: The set of groups that are processed is derived solely from `NINJAONE_GROUP_ROLE_MAP`. There is no separate allow-list variable. If a group name from the event does not match any entry in the `organizations_groups_mapping` array of `NINJAONE_GROUP_ROLE_MAP`, the event is skipped.
 
 **Common causes**:
 
-### Wrong JSON format
+### Group name not in role map
 
-The `SYNC_ALLOWED_GROUPS` value must be a valid JSON array string.
-
-```bash
-# Correct
-SYNC_ALLOWED_GROUPS='["IT Admins", "Support Team"]'
-
-# Wrong — missing quotes around values
-SYNC_ALLOWED_GROUPS=[IT Admins, Support Team]
-
-# Wrong — trailing comma (invalid JSON)
-SYNC_ALLOWED_GROUPS='["IT Admins",]'
-```
-
-Test the JSON locally before deploying:
-```bash
-echo '["IT Admins", "Support Team"]' | python3 -c "import json,sys; print(json.load(sys.stdin))"
-```
-
-### Source mismatch
-
-If `SYNC_ALLOWED_GROUPS_SOURCE=ssm` but the SSM parameter does not exist or has the wrong value, the application raises `ParameterNotFound` at event-processing time (not at startup). Check the SSM parameter:
+The `google_workspace_group_name` field in `NINJAONE_GROUP_ROLE_MAP` must exactly match the WorkOS group name. Matching is **exact and case-sensitive**. `"IT Admins"` and `"it admins"` are treated as different groups.
 
 ```bash
-aws ssm get-parameter --name /workos-conduit/allowed-groups --query 'Parameter.Value' --output text
-```
+# Check the current role map
+echo $NINJAONE_GROUP_ROLE_MAP
+# or, if source=ssm:
+aws ssm get-parameter --name /workos-conduit/ninjaone/group-role-map --query 'Parameter.Value' --output text
 
-### Case sensitivity
-
-Group name matching is **exact and case-sensitive**. `"IT Admins"` and `"it admins"` are different groups. The group name in the allow-list must exactly match the WorkOS group name.
-
-```bash
-# Find the exact group name from a run detail
-curl -s "http://localhost:8080/api/v1/runs/RUN_ID" \
-  | jq '.results[].role' # for group events, check the group name via the dashboard
-
-# Or look in structured logs
+# Find the exact group name from structured logs
 aws logs filter-log-events \
   --log-group-name /ecs/workos-conduit \
   --filter-pattern '"group_name"' \
   --limit 10 | jq '.events[].message | fromjson | .group_name'
 ```
 
-### lru_cache not refreshing
+**Fix**: Ensure the `google_workspace_group_name` field in each role map entry exactly matches the WorkOS group name (including capitalisation and spacing).
 
-When running locally and changing `.env`, the in-process settings cache is not automatically cleared. Restart the dev server after changing `SYNC_ALLOWED_GROUPS`.
+### Role map is empty
 
-When `SYNC_ALLOWED_GROUPS_SOURCE=ssm`, the allow-list is re-read on every `run_cycle()` call — no restart needed.
+If `organizations_groups_mapping` is an empty array (`[]`), all group events are skipped. At least one entry is required for group events to be processed.
+
+### Role is not `END_USER`
+
+If an entry exists but `ninjaone_role` is not `END_USER`, the event is also skipped and a `WARNING` log line is emitted. Only the `END_USER` role is supported for group-driven provisioning.
 
 ---
 
@@ -286,53 +312,82 @@ When `SYNC_ALLOWED_GROUPS_SOURCE=ssm`, the allow-list is re-read on every `run_c
 
 **There are two independent skip layers.** Work through them in order:
 
-### Layer 1: Allow-list check (handler level)
+### Layer 0: Engine-level user-event check
 
-Check whether `SYNC_ALLOWED_GROUPS` is non-empty and excludes your groups:
+The engine derives the set of watched groups from `adapter.watched_groups()`, which returns the group names listed as `google_workspace_group_name` keys in `NINJAONE_GROUP_ROLE_MAP`. This is used for user-event filtering (see [section 10](#10-user-createdupdated-events-skipped-even-though-the-user-is-in-a-watched-group)); for group events themselves this layer is not the primary gate.
 
-```bash
-# If source=env
-echo $SYNC_ALLOWED_GROUPS
+### Layer 1: Role map check (adapter level)
 
-# If source=ssm
-aws ssm get-parameter --name /workos-conduit/allowed-groups --query 'Parameter.Value' --output text
-```
-
-If the allow-list is non-empty and the group name is not in it, the event is skipped at the handler level before the adapter is called. An empty list (`[]`) allows all groups through.
-
-### Layer 2: Role map check (NinjaOne adapter level)
-
-If the allow-list passes, the NinjaOne adapter checks `NINJAONE_GROUP_ROLE_MAP`. If the group name has no entry, the adapter returns `SKIPPED`.
+The NinjaOne adapter checks `NINJAONE_GROUP_ROLE_MAP`. If the group name from the event has no matching entry in `organizations_groups_mapping`, the adapter returns `SKIPPED`. If the group maps to a role other than `END_USER` (case-insensitive), the event is also skipped and a `WARNING` log line is emitted.
 
 ```bash
 # If source=env
 echo $NINJAONE_GROUP_ROLE_MAP
-# Expected: '{"IT Admins": "administrator", "Support": "technician"}'
+# Expected format:
+# '{"organizations_groups_mapping": [{"ninjaone_organization_name": "...", "ninjaone_organization_id": "uuid", "google_workspace_group_name": "ninjaone-users", "ninjaone_role": "END_USER"}]}'
 
 # If source=ssm
 aws ssm get-parameter --name /workos-conduit/ninjaone/group-role-map --query 'Parameter.Value' --output text
 ```
 
-**An empty role map `{}` means ALL group events are skipped** at the adapter level — this is the default. You must add at least one entry for group events to be processed.
+**An empty `organizations_groups_mapping` array means ALL group events are skipped** at the adapter level — this is the default. You must add at least one entry for group events to be processed.
+
+**Only `END_USER` role is supported.** Other role values (e.g. `administrator`, `technician`) will produce a WARNING log and return SKIPPED:
+
+```bash
+# Look for unsupported role warnings in logs
+aws logs filter-log-events \
+  --log-group-name /ecs/workos-conduit \
+  --filter-pattern '"group_membership_skipped_unsupported_role"' \
+  --limit 10 | jq '.events[].message | fromjson | {group, role, reason}'
+```
 
 **Common role map mistakes**:
 
 | Mistake | Symptom |
 |---|---|
-| Empty object `{}` | All group events SKIPPED |
-| Wrong role name (e.g. `"Administrator"` vs `"administrator"`) | NinjaOne returns 400 or 422 |
+| Empty array `[]` | All group events SKIPPED |
+| Role other than `END_USER` (e.g. `"administrator"`) | WARNING log + SKIPPED; not an error |
 | Group name case mismatch | Group not found in map → SKIPPED |
+| `ninjaone_organization_id` is an integer, not a string | JSON parse error or wrong org assigned |
 
-Verify that your role names match NinjaOne exactly:
-```bash
-# List NinjaOne roles via the API (requires auth)
-curl -s -H "Authorization: Bearer TOKEN" \
-  "https://app.ninjarmm.com/v2/roles" | jq '.[].name'
-```
+**Note on org changes**: When a user is moved from one Google Workspace group to another (which maps to a different NinjaOne organization), the next `dsync.group.user_added` event for the new group will patch the user's `organizationId` in NinjaOne automatically. The result will be `action: updated` with `organizationId` in `changed_fields`.
 
 ---
 
-## 10. Dashboard showing no runs / blank history table
+## 10. User created/updated events skipped even though the user is in a watched group
+
+**Symptom**: `dsync.user.created` or `dsync.user.updated` events have `action: skipped`. The user exists in your WorkOS directory and belongs to an allowed group, but is not being provisioned.
+
+**Cause**: The engine derives the set of watched groups from `adapter.watched_groups()`, which returns the `google_workspace_group_name` keys from `NINJAONE_GROUP_ROLE_MAP`. On every `dsync.user.created`/`dsync.user.updated` event the engine checks (via the WorkOS API) whether the user belongs to any of those groups. If the user is not in any watched group, the event is skipped — this check is independent of the event's payload.
+
+**Additional note**: If `NINJAONE_GROUP_ADMINS` is set and the user belongs to that group, the event is intentionally skipped. Admin users are managed separately and are not provisioned through the standard user-event pipeline.
+
+**Diagnosis**:
+
+```bash
+# Check the role map to see which group names are watched
+echo $NINJAONE_GROUP_ROLE_MAP
+# or: aws ssm get-parameter --name /workos-conduit/ninjaone/group-role-map --query 'Parameter.Value' --output text
+
+# Check logs for the skip event
+aws logs filter-log-events \
+  --log-group-name /ecs/workos-conduit \
+  --filter-pattern '"user_not_in_allowed_group"' \
+  --limit 10 | jq '.events[].message | fromjson | {email, event_type}'
+```
+
+**Fix**:
+
+1. **Group name mismatch**: Verify the `google_workspace_group_name` values in `NINJAONE_GROUP_ROLE_MAP` exactly match the WorkOS group names (case-sensitive).
+2. **User not yet in group**: The WorkOS API is queried at event processing time. If the user was not added to the group before the event fired, they will be skipped. Wait for a `dsync.group.user_added` event which will create them via the group membership handler.
+3. **Admin group membership**: If the user is in the group specified by `NINJAONE_GROUP_ADMINS`, the skip is intentional. Admin users are not provisioned via the user-event handler.
+
+**Note**: `dsync.user.deleted` events always bypass the group check — deactivation proceeds regardless of current group membership.
+
+---
+
+## 11. Dashboard showing no runs / blank history table
 
 **Symptom**: Opening `http://localhost:8080/` shows the dashboard but the run history table is empty. `GET /api/v1/runs/` returns `[]`.
 
@@ -350,7 +405,7 @@ curl -s -X POST http://localhost:8080/api/v1/sync/trigger \
 
 ### Using the `local` backend but the server restarted
 
-When `CURSOR_BACKEND=local`, the cursor resets to zero on every restart but run records persist in `.local-state/runs/`. If the directory was deleted or `LOCAL_STATE_DIR` changed, records are gone. Check:
+When `CURSOR_BACKEND=local`, the cursor is persisted in `.local-state/cursor.txt` and survives restarts. If `.local-state/` was deleted or `LOCAL_STATE_DIR` changed, both cursor and run history may appear reset. Check:
 
 ```bash
 ls .local-state/runs/

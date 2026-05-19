@@ -5,7 +5,6 @@ services:
       - "8080:8080"
     env_file: .env
     volumes:
-      - ~/.aws:/home/appuser/.aws:ro
       - ./src:/app/src
     environment:
       LOG_FORMAT: console   # human-readable output for local dev

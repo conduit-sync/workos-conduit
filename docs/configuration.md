@@ -13,8 +13,7 @@ These variables contain credentials and **must** be stored in AWS Secrets Manage
 | Variable | Reason |
 |---|---|
 | `WORKOS_API_KEY` | WorkOS API credential |
-| `NINJAONE_CLIENT_ID` | NinjaOne OAuth client ID |
-| `NINJAONE_CLIENT_SECRET` | NinjaOne OAuth client secret |
+| `NINJAONE_OAUTH_CLIENT_SECRET` | NinjaOne OAuth client secret |
 | `API_SECRET_KEY` | Protects the `/api/v1/sync/trigger` endpoint |
 
 All other variables are safe as plain ECS environment variables or SSM parameters.
@@ -43,22 +42,6 @@ All other variables are safe as plain ECS environment variables or SSM parameter
 
 ---
 
-## Group Allow-List
-
-Controls which WorkOS directory groups are processed. An empty list (the default) allows all groups through — no behaviour change from before this feature was added.
-
-| Variable | Type | Default | Required | Description |
-|---|---|---|---|---|
-| `SYNC_ALLOWED_GROUPS` | `str` (JSON array) | `[]` | No | JSON array of exact WorkOS group names to process. Groups not in this list return `SyncAction.SKIPPED` before reaching the adapter. Example: `'["IT Admins","Support Team"]'` |
-| `SYNC_ALLOWED_GROUPS_SOURCE` | `str` | `env` | No | Where to load the allow-list from. `env` reads `SYNC_ALLOWED_GROUPS`; `ssm` reads from SSM Parameter Store. |
-| `SYNC_ALLOWED_GROUPS_SSM_PARAM` | `str` | `/workos-conduit/allowed-groups` | When source=ssm | SSM parameter path containing the JSON array. Required when `SYNC_ALLOWED_GROUPS_SOURCE=ssm`. |
-
-**Interaction**: `SYNC_ALLOWED_GROUPS_SOURCE=ssm` requires `SYNC_ALLOWED_GROUPS_SSM_PARAM` to be non-empty. The validator raises at startup if it is empty.
-
-**Updating without redeploy**: When `SYNC_ALLOWED_GROUPS_SOURCE=ssm`, you can update the allowed groups by writing a new JSON array to the SSM parameter. The new value is read on the next `run_cycle()` call (no restart required) because `load_allowed_groups()` is called fresh each cycle.
-
----
-
 ## NinjaOne
 
 Required when `SYNC_TARGET_ADAPTER=ninjaone`.
@@ -66,18 +49,73 @@ Required when `SYNC_TARGET_ADAPTER=ninjaone`.
 | Variable | Type | Default | Required | Description |
 |---|---|---|---|---|
 | `NINJAONE_BASE_URL` | `str` | `https://app.ninjarmm.com` | No | NinjaOne API base URL. Override for EU or other regions. |
-| `NINJAONE_CLIENT_ID` | `str` | `""` | **Yes** (when adapter=ninjaone) | OAuth 2.0 client ID from NinjaOne API settings |
-| `NINJAONE_CLIENT_SECRET` | `str` | `""` | **Yes** (when adapter=ninjaone) | OAuth 2.0 client secret |
-| `NINJAONE_ORG_ID` | `str` | `""` | No | NinjaOne organisation ID. Passed as `organizationId` when creating technicians. |
-| `NINJAONE_GROUP_ROLE_MAP` | `str` (JSON object) | `{}` | No | JSON object mapping WorkOS group names to NinjaOne role names. Example: `'{"IT Admins": "administrator", "Support": "technician"}'`. Empty object means all group events are SKIPPED at the adapter level. |
+| `NINJAONE_OAUTH_CLIENT_ID` | `str` | `""` | **Yes** (when adapter=ninjaone) | NinjaOne OAuth app client ID. |
+| `NINJAONE_OAUTH_CLIENT_SECRET` | `str` | `""` | **Yes** (when adapter=ninjaone) | NinjaOne OAuth app client secret. |
+| `NINJAONE_OAUTH_SCOPE` | `str` | `control offline_access monitoring management` | No | OAuth scopes sent in authorization and refresh-token flows. |
+| `NINJAONE_OAUTH_AUTHORIZE_PATH` | `str` | `/oauth/authorize` | No | NinjaOne OAuth authorize endpoint path. |
+| `NINJAONE_OAUTH_TOKEN_PATH` | `str` | `/oauth/token` | No | NinjaOne OAuth token endpoint path. |
+| `NINJAONE_OAUTH_REDIRECT_PATH` | `str` | `/dashboard/oauth/ninjaone/callback` | No | Callback path mounted by this app. Usually keep default unless routes are proxied/rebased. |
+| `NINJAONE_OAUTH_REFRESH_TOKEN_SSM_PARAM` | `str` | `/workos-conduit/ninjaone/oauth-refresh-token` | No | SSM SecureString path storing the refresh-token JSON blob. |
+| `NINJAONE_OAUTH_REFRESH_TOKEN_LIFETIME_DAYS` | `int` | `30` | No | Used to compute estimated refresh-token expiration shown in dashboard. |
+| `NINJAONE_GROUP_ROLE_MAP` | `str` (JSON object) | `{"organizations_groups_mapping": []}` | No | JSON object containing an `organizations_groups_mapping` array. Each entry maps a Google Workspace group to a NinjaOne organization and role. See format below. An empty array means all group events are SKIPPED at the adapter level. |
 | `NINJAONE_GROUP_ROLE_MAP_SOURCE` | `str` | `env` | No | Where to load the role map from. `env` reads `NINJAONE_GROUP_ROLE_MAP`; `ssm` reads from SSM Parameter Store. |
 | `NINJAONE_GROUP_ROLE_MAP_SSM_PARAM` | `str` | `/workos-conduit/ninjaone/group-role-map` | When source=ssm | SSM parameter path containing the JSON object. |
+| `NINJAONE_GROUP_ADMINS` | `str` | `""` | No | WorkOS group name whose members are skipped for `dsync.user.created` and `dsync.user.updated` events. Delete events (`dsync.user.deleted`) still process normally. Example: `ninjaone-admins`. |
+
+**JSON format for `NINJAONE_GROUP_ROLE_MAP`**:
+
+```json
+{
+  "organizations_groups_mapping": [
+    {
+      "ninjaone_organization_name": "Stakes Manufacturing",
+      "ninjaone_organization_id": "9e77507d-d092-4a37-bf99-c987fc27a327",
+      "google_workspace_group_name": "ninjaone-users",
+      "ninjaone_role": "END_USER"
+    },
+    {
+      "ninjaone_organization_name": "Warehouse Operations",
+      "ninjaone_organization_id": "34e9abb2-a0c3-423d-8858-bbc3bbd2048b",
+      "google_workspace_group_name": "warehouse-operations-users",
+      "ninjaone_role": "END_USER"
+    }
+  ]
+}
+```
+
+Each entry fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `ninjaone_organization_name` | `str` | Human-readable label (for documentation only; not sent to the API) |
+| `ninjaone_organization_id` | `str` | NinjaOne organization UUID. Passed as `organizationId` when creating an end-user. |
+| `google_workspace_group_name` | `str` | Exact WorkOS group name to match (case-sensitive) |
+| `ninjaone_role` | `str` | Must be `END_USER`. Other values log a warning and skip the event. |
+
+**Org assignment behaviour**: When a `dsync.group.user_added` event arrives, the adapter looks up the group mapping, then:
+- If the user does not exist in NinjaOne → creates them with the mapped `organizationId`
+- If the user exists but belongs to a different organization → patches `organizationId` to the expected one (returns `UPDATED`)
+- If the user exists with the correct organization → returns `SKIPPED`
 
 **Interaction**: `NINJAONE_GROUP_ROLE_MAP_SOURCE=ssm` requires `NINJAONE_GROUP_ROLE_MAP_SSM_PARAM` to be non-empty. Startup validation raises if it is empty.
 
-**Role names**: NinjaOne role names must match exactly what NinjaOne expects in the `role` field of the technician update API. Common values: `administrator`, `technician`, `custom_role_name`. Check your NinjaOne tenant for valid role names.
+**Supported roles**: Only `END_USER` (case-insensitive) is supported at this time. If a group maps to any other role (e.g. `administrator`, `technician`), the event is skipped and a `WARNING` log line is emitted with `group_membership_skipped_unsupported_role`. Support for additional roles will be added in a future release.
 
-**Group name matching**: Both `SYNC_ALLOWED_GROUPS` and `NINJAONE_GROUP_ROLE_MAP` use **exact, case-sensitive** string matching against the WorkOS group name. `"IT Admins"` and `"it admins"` are different groups.
+**Authentication**: NinjaOne auth uses OAuth 2.0 with two grants. An operator manually generates a refresh token using the dashboard **Generate Refresh Token** button or `scripts/ninjaone_oauth_bootstrap.py`, and that token is stored in SSM SecureString (`NINJAONE_OAUTH_REFRESH_TOKEN_SSM_PARAM`). At runtime, the client exchanges that refresh token at `/oauth/token` (`grant_type=refresh_token`) to mint short-lived bearer access tokens, caches them in-process, and sends `Authorization: Bearer <token>` on API calls.
+
+**Required callback registration**: Register this exact redirect URI in your NinjaOne OAuth app:
+
+```
+{DASHBOARD_PUBLIC_BASE_URL}{NINJAONE_OAUTH_REDIRECT_PATH}
+```
+
+Example: `https://conduit.example.com/dashboard/oauth/ninjaone/callback`.
+
+**Callback implementation**: The app implements the callback route at `GET /dashboard/oauth/ninjaone/callback`, and the flow start endpoint at `POST /dashboard/oauth/ninjaone/start` (API key protected). `NINJAONE_OAUTH_REDIRECT_PATH` must match the registered callback path.
+
+**Group name matching**: `NINJAONE_GROUP_ROLE_MAP` uses **exact, case-sensitive** string matching against the WorkOS group name. `"IT Admins"` and `"it admins"` are different groups.
+
+**Implicit allow-list**: The groups listed in `NINJAONE_GROUP_ROLE_MAP` automatically define which users are processed on `dsync.user.created` and `dsync.user.updated` events. Users who do not belong to any mapped group are skipped at the engine level before handlers run. No separate allow-list configuration is needed.
 
 ---
 
@@ -101,11 +139,13 @@ Controls outbound HTTP calls to the NinjaOne API.
 
 | Variable | Type | Default | Required | Description |
 |---|---|---|---|---|
-| `CURSOR_BACKEND` | `str` | `aws` | No | Backend for cursor storage. `aws` (SSM Parameter Store) or `local` (in-memory, resets on restart). |
+| `CURSOR_BACKEND` | `str` | `aws` | No | Backend for cursor storage. `aws` (SSM Parameter Store), `local` (file-backed, survives restarts), or `memory` (in-process only, resets on restart — useful for tests). |
 | `STATE_BACKEND` | `str` | `aws` | No | Backend for run record storage. `aws` (S3) or `local` (filesystem under `LOCAL_STATE_DIR`). |
-| `LOCAL_STATE_DIR` | `str` | `.local-state` | No | Root directory for the `local` state backend. Run records are written to `{dir}/runs/{run_id}.json`. Not used when `STATE_BACKEND=aws`. |
+| `LOCAL_STATE_DIR` | `str` | `.local-state` | No | Root directory for local backends. Cursor: `{dir}/cursor.txt`. Run records: `{dir}/runs/YYYYMMDDHHMMSS_{run_id[:8]}.json`. Not used when both backends are `aws`. |
 
-**`local` backend**: intended for local development only — no AWS credentials required. The cursor lives in memory and resets on every server restart. Run records are persisted to the local filesystem and are gitignored.
+**`local` backend**: intended for local development — no AWS credentials required. Cursor is persisted to `cursor.txt` and survives restarts (delete the file to reset). Run record filenames include a timestamp prefix (`YYYYMMDDHHMMSS`) so `ls` output is human-readable and naturally sorted. Both paths are gitignored.
+
+**`memory` backend**: cursor only. State lives in-process and is lost on every restart. Use this in unit tests where you need isolation between test runs.
 
 **`aws` backend**: required for production. Uses SSM Parameter Store for the cursor and S3 for run records.
 
@@ -131,9 +171,9 @@ See `infra/aws/iam-task-role-policy.json` for the reference policy.
 ```
 /workos-conduit/
 ├── cursor                          ← last processed WorkOS event ID
-├── allowed-groups                  ← JSON array (when SYNC_ALLOWED_GROUPS_SOURCE=ssm)
 └── ninjaone/
-    └── group-role-map              ← JSON object (when NINJAONE_GROUP_ROLE_MAP_SOURCE=ssm)
+    ├── group-role-map              ← JSON object (when NINJAONE_GROUP_ROLE_MAP_SOURCE=ssm)
+    └── oauth-refresh-token         ← SecureString JSON blob for OAuth refresh token
 ```
 
 ---
@@ -144,7 +184,7 @@ See `infra/aws/iam-task-role-policy.json` for the reference policy.
 |---|---|---|---|---|
 | `SERVER_HOST` | `str` | `0.0.0.0` | No | Host to bind the uvicorn server to |
 | `SERVER_PORT` | `int` | `8080` | No | Port to listen on |
-| `API_SECRET_KEY` | `str` | `change-me-in-production` | **Yes** (in production) | Secret token for `X-API-Key` header authentication on `POST /api/v1/sync/trigger`. The default value is intentionally insecure — always override in production. |
+| `API_SECRET_KEY` | `str` | `change-me-in-production` | **Yes** (in production) | Secret token for `X-API-Key` header authentication on `POST /api/v1/sync/trigger` and `POST /dashboard/oauth/ninjaone/start`. The default value is intentionally insecure — always override in production. |
 
 ---
 
@@ -155,6 +195,7 @@ See `infra/aws/iam-task-role-policy.json` for the reference policy.
 | `DASHBOARD_ENABLED` | `bool` | `true` | No | Enable or disable the Jinja2 HTML dashboard at `GET /`. When `false`, the route returns 404. |
 | `DASHBOARD_RUN_HISTORY_LIMIT` | `int` | `50` | No | Maximum number of run records shown in the dashboard run history table |
 | `DASHBOARD_AUTO_REFRESH_SECONDS` | `int` | `60` | No | Interval in seconds for the dashboard `<meta http-equiv="refresh">` tag. Set to `0` to disable auto-refresh. |
+| `DASHBOARD_PUBLIC_BASE_URL` | `str` | `""` | Required for dashboard OAuth flow | Public app base URL used to construct the registered OAuth callback URI (`{base_url}/dashboard/oauth/ninjaone/callback`). |
 
 ---
 
@@ -198,12 +239,24 @@ Example:
 
 ## Validation Rules
 
-The `Settings.validate_config` model validator enforces these rules at startup. Any violation raises a `ValueError` and prevents the application from starting.
+Validation runs at startup. Any violation raises a `ValueError` and prevents the application from starting.
+
+`Settings.validate_config` (config-level, checked on every startup):
 
 | Condition | Error |
 |---|---|
-| `SYNC_TARGET_ADAPTER=ninjaone` and `NINJAONE_CLIENT_ID` is empty | `ninjaone_client_id and ninjaone_client_secret required` |
-| `STATE_BACKEND=aws` and `S3_STATE_BUCKET` is empty | `s3_state_bucket required when state_backend=aws` |
-| `CURSOR_BACKEND=local` or `STATE_BACKEND=local` | No validation error — `local` backends have no required fields |
 | `NINJAONE_GROUP_ROLE_MAP_SOURCE=ssm` and `NINJAONE_GROUP_ROLE_MAP_SSM_PARAM` is empty | `ninjaone_group_role_map_ssm_param required` |
-| `SYNC_ALLOWED_GROUPS_SOURCE=ssm` and `SYNC_ALLOWED_GROUPS_SSM_PARAM` is empty | `sync_allowed_groups_ssm_param required` |
+| `WORKOS_EVENT_TYPES` is a JSON array string but is not valid JSON | `workos_event_types is not valid JSON` |
+
+`NinjaOneAdapter.__init__` (adapter-level, checked when the adapter is first instantiated):
+
+| Condition | Error |
+|---|---|
+| `NINJAONE_OAUTH_CLIENT_ID` is empty | `ninjaone_oauth_client_id is required when sync_target_adapter=ninjaone` |
+| `NINJAONE_OAUTH_CLIENT_SECRET` is empty | `ninjaone_oauth_client_secret is required when sync_target_adapter=ninjaone` |
+
+`S3StateBackend.__init__` (backend-level, checked when the backend is first instantiated):
+
+| Condition | Error |
+|---|---|
+| `STATE_BACKEND=aws` and `S3_STATE_BUCKET` is empty | `s3_state_bucket is required when state_backend=aws` |

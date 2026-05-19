@@ -12,9 +12,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from src.adapters.ninjaone.refresh_token_store import SsmRefreshTokenStore
 from src.backends.base import StateBackend
 from src.config import Settings
-from src.core.models import RunRecord, RunStatus, SyncAction
+from src.core.models import RunRecord, RunStatus
 from src.deps import get_settings, get_state_backend_dep
 
 log = structlog.get_logger()
@@ -42,23 +43,20 @@ def _count_events_last_24h(runs: list[RunRecord]) -> int:
     return sum(r.events_processed for r in runs if r.started_at >= cutoff)
 
 
-def _safe_config(settings: Settings) -> dict:
+def _safe_config(
+    settings: Settings, oauth_status: str | None = None, oauth_error: str | None = None
+) -> dict:
     """Returns non-sensitive config values for display on the dashboard."""
     import json
 
     try:
-        allowed = json.loads(settings.sync_allowed_groups)
+        if settings.ninjaone_group_role_map_source == "env":
+            raw_map = json.loads(settings.ninjaone_group_role_map)
+            role_map = raw_map.get("organizations_groups_mapping", [])
+        else:
+            role_map = None  # loaded from SSM — not available at render time
     except Exception:
-        allowed = []
-
-    try:
-        role_map = (
-            json.loads(settings.ninjaone_group_role_map)
-            if settings.ninjaone_group_role_map_source == "env"
-            else None
-        )
-    except Exception:
-        role_map = {}
+        role_map = []
 
     from src.workos.client import _parse_event_types
 
@@ -73,6 +71,23 @@ def _safe_config(settings: Settings) -> dict:
             "dsync.group.user_removed",
         ]
 
+    refresh_meta: dict | None = None
+    try:
+        refresh_record = SsmRefreshTokenStore(settings).get()
+        if refresh_record:
+            now = datetime.now(tz=UTC)
+            remaining = refresh_record.expires_at - now
+            remaining_seconds = max(int(remaining.total_seconds()), 0)
+            refresh_meta = {
+                "generated_at": refresh_record.generated_at,
+                "expires_at": refresh_record.expires_at,
+                "remaining_seconds": remaining_seconds,
+                "scope": refresh_record.scope,
+                "issuer": refresh_record.issuer,
+            }
+    except Exception as exc:
+        log.warning("dashboard_oauth_store_unreachable", error=str(exc))
+
     return {
         "adapter": settings.sync_target_adapter,
         "cursor_backend": settings.cursor_backend,
@@ -80,23 +95,21 @@ def _safe_config(settings: Settings) -> dict:
         "workos_directory_id": settings.workos_directory_id,
         "workos_event_types": event_types,
         "workos_events_page_size": settings.workos_events_page_size,
-        "allowed_groups": allowed,
-        "allowed_groups_source": settings.sync_allowed_groups_source,
+        "admin_group": settings.ninjaone_group_admins.strip() or None,
         "role_map": role_map,
         "role_map_source": settings.ninjaone_group_role_map_source,
         "stop_on_error": settings.sync_stop_on_error,
         "ninjaone_base_url": settings.ninjaone_base_url,
+        "ninjaone_oauth_scope": settings.ninjaone_oauth_scope,
+        "ninjaone_oauth_refresh_meta": refresh_meta,
+        "ninjaone_oauth_web_enabled": bool(
+            settings.ninjaone_oauth_refresh_token_ssm_param.strip()
+        ),
+        "ninjaone_oauth_last_flow_failed": oauth_status == "error",
+        "ninjaone_oauth_last_error": oauth_error,
         "s3_state_bucket": settings.s3_state_bucket or None,
         "log_level": settings.log_level,
     }
-
-
-def _compute_action_totals(runs: list[RunRecord]) -> dict[str, int]:
-    totals: dict[str, int] = {action.value: 0 for action in SyncAction}
-    for run in runs:
-        for action_val, count in run.counts.items():
-            totals[action_val] = totals.get(action_val, 0) + count
-    return totals
 
 
 @router.get(
@@ -112,6 +125,9 @@ async def dashboard(
     if not settings.dashboard_enabled:
         raise HTTPException(status_code=404, detail="Dashboard disabled")
 
+    oauth_status = request.query_params.get("oauth_status")
+    oauth_error = request.query_params.get("detail")
+
     backend_error: str | None = None
     runs: list[RunRecord] = []
     try:
@@ -122,7 +138,7 @@ async def dashboard(
         backend_error = str(exc)
         log.warning("dashboard_backend_unavailable", error=backend_error)
 
-    action_totals = _compute_action_totals(runs)
+    action_totals = RunRecord.aggregate_counts(runs)
     total = sum(action_totals.values()) or 1
     action_pcts = {k: round(v / total * 100, 1) for k, v in action_totals.items()}
 
@@ -140,7 +156,11 @@ async def dashboard(
             "action_pcts": action_pcts,
             "dashboard_auto_refresh_seconds": settings.dashboard_auto_refresh_seconds,
             "backend_error": backend_error,
-            "config": _safe_config(settings),
+            "oauth_status": oauth_status,
+            "oauth_error": oauth_error,
+            "config": _safe_config(
+                settings, oauth_status=oauth_status, oauth_error=oauth_error
+            ),
         },
     )
 

@@ -16,6 +16,21 @@ class EventRouter:
     def __init__(self, handlers: list[BaseEventHandler]) -> None:
         self._handlers = handlers
 
+    @staticmethod
+    def _event_email(event: dict) -> str | None:
+        data = event.get("data", {})
+        if not isinstance(data, dict):
+            return None
+        user_data = data.get("user")
+        if isinstance(user_data, dict):
+            email = user_data.get("email")
+            if isinstance(email, str) and email:
+                return email
+        email = data.get("email")
+        if isinstance(email, str) and email:
+            return email
+        return None
+
     def route(self, event: dict, adapter: BaseTargetAdapter) -> HandlerResult:
         """
         Dispatches to the first handler that claims the event type.
@@ -42,6 +57,7 @@ class EventRouter:
                         event_type=event_type,
                         action=SyncAction.ERROR,
                         target_adapter=adapter.adapter_key,
+                        email=self._event_email(event),
                         error_message=str(exc),
                     )
 

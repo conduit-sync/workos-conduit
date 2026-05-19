@@ -5,10 +5,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import boto3
 import structlog
-from botocore.exceptions import ClientError
 
+from src.backends.aws.client import make_boto_client
 from src.backends.base import StateBackend
 from src.core.models import RunRecord
 
@@ -20,7 +19,9 @@ log = structlog.get_logger()
 
 class S3StateBackend(StateBackend):
     def __init__(self, settings: Settings) -> None:
-        self._client = boto3.client("s3", region_name=settings.aws_region)
+        if not settings.s3_state_bucket:
+            raise ValueError("s3_state_bucket is required when state_backend=aws")
+        self._client = make_boto_client("s3", settings)
         self._bucket = settings.s3_state_bucket
         self._prefix = settings.s3_state_prefix
 
@@ -76,11 +77,5 @@ class S3StateBackend(StateBackend):
         try:
             self._client.head_bucket(Bucket=self._bucket)
             return True
-        except ClientError as exc:
-            code = exc.response["Error"]["Code"]
-            # 404 means bucket exists but may be empty — still reachable
-            if code in ("404", "NoSuchBucket"):
-                return False
-            return False
         except Exception:
             return False

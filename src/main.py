@@ -11,6 +11,7 @@ from fastapi import FastAPI
 
 from src.api import health, runs, sync
 from src.config import get_settings
+from src.dashboard.oauth_router import router as dashboard_oauth_router
 from src.dashboard.router import router as dashboard_router
 from src.logging_config import configure_logging
 
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
     app.include_router(sync.router, prefix="/api/v1/sync", tags=["sync"])
     app.include_router(runs.router, prefix="/api/v1/runs", tags=["runs"])
     app.include_router(dashboard_router, tags=["dashboard"])
+    app.include_router(dashboard_oauth_router)
 
     return app
 

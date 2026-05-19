@@ -95,4 +95,15 @@ def test_handler_exception_returns_error_does_not_propagate():
     router = _make_router()
     result = router.route(_make_event("dsync.user.created"), adapter)
     assert result.action == SyncAction.ERROR
+    assert result.email == "alice@example.com"
     assert "boom" in result.error_message
+
+
+def test_group_handler_exception_includes_nested_user_email():
+    adapter = _make_mock_adapter()
+    adapter.provision_group_membership.side_effect = RuntimeError("group boom")
+    router = _make_router()
+    result = router.route(_make_event("dsync.group.user_added"), adapter)
+    assert result.action == SyncAction.ERROR
+    assert result.email == "alice@example.com"
+    assert "group boom" in result.error_message

@@ -4,7 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   {% if dashboard_auto_refresh_seconds and dashboard_auto_refresh_seconds > 0 %}
-  <script>setTimeout(() => location.reload(), {{ dashboard_auto_refresh_seconds }} * 1000);</script>
+  <script>
+    window.__dashboardAutoRefreshTimer = setTimeout(
+      () => location.reload(),
+      {{ dashboard_auto_refresh_seconds }} * 1000
+    );
+  </script>
   {% endif %}
   <title>WorkOS Conduit</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -138,6 +143,13 @@
     .btn:hover { opacity: .85; }
     .btn-primary { background: var(--green); color: #0d1117; }
     .btn-secondary { background: transparent; color: var(--text); border-color: var(--border); }
+    .btn-oauth {
+      justify-content: center;
+      background: rgba(88,166,255,.18);
+      border-color: rgba(88,166,255,.45);
+      color: var(--text);
+      text-align: center;
+    }
 
     /* ── Utility ── */
     .section-title {

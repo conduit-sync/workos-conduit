@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
-One-time import of all existing Google Workspace users into the target adapter.
+One-time import of existing WorkOS directory users into the target adapter.
+
+Only users who belong to at least one group in SYNC_ALLOWED_GROUPS are
+provisioned.  If SYNC_ALLOWED_GROUPS is empty (allow-all mode) every active
+user in the directory is imported.
+
 Run BEFORE deploying the ECS task so new events pick up from a clean baseline.
 
 Usage:
@@ -10,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -51,6 +57,91 @@ def workos_user_to_provisioning(user) -> ProvisioningUser:
     )
 
 
+def _next_page_cursor(response) -> str | None:
+    meta = getattr(response, "list_metadata", None)
+    return getattr(meta, "after", None) if meta else None
+
+
+def _collect_group_member_ids(client, group) -> set[str]:
+    """Return all WorkOS user IDs that are members of a single directory group."""
+    member_ids: set[str] = set()
+    after = None
+    while True:
+        kwargs: dict = {"group": group.id, "limit": 100}
+        if after:
+            kwargs["after"] = after
+        resp = client.directory_sync.list_directory_users(**kwargs)
+        for u in getattr(resp, "data", []):
+            member_ids.add(u.id)
+        after = _next_page_cursor(resp)
+        if not after:
+            break
+    return member_ids
+
+
+def _collect_allowed_user_ids(client, settings) -> set[str] | None:
+    """Return WorkOS user IDs that belong to any allowed group.
+
+    Returns None when SYNC_ALLOWED_GROUPS is empty (allow-all mode).
+    """
+    raw = settings.sync_allowed_groups.strip()
+    allowed_groups: list[str] = json.loads(raw) if raw else []
+    if not allowed_groups:
+        return None
+
+    allowed_set: set[str] = set()
+    after = None
+    while True:
+        kwargs: dict = {"directory": settings.workos_directory_id, "limit": 100}
+        if after:
+            kwargs["after"] = after
+        response = client.directory_sync.list_directory_groups(**kwargs)
+        for group in getattr(response, "data", []):
+            group_name = getattr(group, "name", "")
+            if group_name not in allowed_groups:
+                continue
+            log.info("bootstrap_scanning_group", group=group_name, group_id=group.id)
+            allowed_set |= _collect_group_member_ids(client, group)
+        after = _next_page_cursor(response)
+        if not after:
+            break
+
+    log.info("bootstrap_allowed_users_resolved", count=len(allowed_set))
+    return allowed_set
+
+
+def _provision_user(raw_user, adapter, dry_run: bool) -> tuple[str, None]:
+    """Provision a single user; returns (action, None) or raises."""
+    user = workos_user_to_provisioning(raw_user)
+    if dry_run:
+        print(f"WOULD CREATE {user.email}")
+        return "created", None
+    result = adapter.provision_user_created(user)
+    action = result.action.value
+    print(f"{action.upper():20s} {user.email}")
+    return action, None
+
+
+def _process_page(users, allowed_user_ids, adapter, dry_run: bool) -> dict:
+    counts = {"total": 0, "created": 0, "skipped": 0, "filtered": 0, "errors": 0}
+    for raw_user in users:
+        counts["total"] += 1
+        if allowed_user_ids is not None and raw_user.id not in allowed_user_ids:
+            counts["filtered"] += 1
+            continue
+        try:
+            action, _ = _provision_user(raw_user, adapter, dry_run)
+            if action in ("created", "skipped"):
+                counts[action] += 1
+        except Exception as exc:
+            counts["errors"] += 1
+            print(
+                f"ERROR               {getattr(raw_user, 'email', '?')}: {exc}",
+                file=sys.stderr,
+            )
+    return counts
+
+
 def main() -> None:
     args = parse_args()
     settings = get_settings()
@@ -63,54 +154,42 @@ def main() -> None:
     client = workos_sdk.WorkOSClient(api_key=settings.workos_api_key)
     adapter = get_adapter(adapter_key, settings)
 
-    log.info("bootstrap_started", adapter=adapter_key, dry_run=args.dry_run)
+    allowed_user_ids = _collect_allowed_user_ids(client, settings)
+    if allowed_user_ids is None:
+        log.info("bootstrap_started", adapter=adapter_key, dry_run=args.dry_run, group_filter="all")
+    else:
+        log.info(
+            "bootstrap_started",
+            adapter=adapter_key,
+            dry_run=args.dry_run,
+            group_filter=settings.sync_allowed_groups,
+            eligible_users=len(allowed_user_ids),
+        )
 
-    total = created = skipped = errors = 0
+    totals = {"total": 0, "created": 0, "skipped": 0, "filtered": 0, "errors": 0}
     after = None
 
     while True:
         kwargs: dict = {"directory": settings.workos_directory_id, "limit": 100}
         if after:
             kwargs["after"] = after
-
         response = client.directory_sync.list_directory_users(**kwargs)
         users = getattr(response, "data", [])
         if not users:
             break
-
-        for raw_user in users:
-            total += 1
-            try:
-                user = workos_user_to_provisioning(raw_user)
-                if args.dry_run:
-                    print(f"WOULD CREATE {user.email}")
-                    created += 1
-                else:
-                    result = adapter.provision_user_created(user)
-                    action = result.action.value
-                    print(f"{action.upper():20s} {user.email}")
-                    if action == "created":
-                        created += 1
-                    elif action == "skipped":
-                        skipped += 1
-            except Exception as exc:
-                errors += 1
-                print(
-                    f"ERROR               {getattr(raw_user, 'email', '?')}: {exc}",
-                    file=sys.stderr,
-                )
-
-        # Check for next page
-        list_metadata = getattr(response, "list_metadata", None)
-        after = getattr(list_metadata, "after", None) if list_metadata else None
+        page_counts = _process_page(users, allowed_user_ids, adapter, args.dry_run)
+        for k, v in page_counts.items():
+            totals[k] += v
+        after = _next_page_cursor(response)
         if not after:
             break
 
     print("\n" + "─" * 50)
-    print(f"Total:     {total}")
-    print(f"Created:   {created}")
-    print(f"Skipped:   {skipped}")
-    print(f"Errors:    {errors}")
+    print(f"Total scanned: {totals['total']}")
+    print(f"Filtered out:  {totals['filtered']}  (not in allowed groups)")
+    print(f"Created:       {totals['created']}")
+    print(f"Skipped:       {totals['skipped']}  (already existed)")
+    print(f"Errors:        {totals['errors']}")
     if args.dry_run:
         print("\n(Dry run — no changes made)")
 
