@@ -11,6 +11,12 @@ def test_liveness(test_client):
     assert resp.json()["status"] == "ok"
 
 
+def test_liveness_without_trailing_slash(test_client):
+    resp = test_client.get("/health", follow_redirects=False)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+
+
 def test_readiness_all_healthy(test_client, settings_override):
     mock_adapter = MagicMock()
     mock_adapter.adapter_key = "ninjaone"

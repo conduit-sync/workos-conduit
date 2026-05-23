@@ -15,6 +15,7 @@ from src.deps import get_adapter_dep, get_cursor_backend_dep, get_state_backend_
 router = APIRouter()
 
 
+@router.get("")
 @router.get("/")
 async def liveness() -> dict:
     """Always 200. Used by ECS container health check."""
