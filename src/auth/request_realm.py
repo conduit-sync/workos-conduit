@@ -7,6 +7,9 @@ from src.config import Settings
 
 REQUEST_REALM_HEADER = "x-stakesmfg-request-realm"
 NOT_ALLOWED_ORIGIN = "Not allowed origin"
+_REALM_INTERNAL = "internal"
+_REALM_EASTLAKE = "eastlake"
+WORKOS_SSO_CALLBACK_PATH = "/auth/callback"
 
 
 class RequestRealmError(Exception):
@@ -17,16 +20,45 @@ class RequestRealmError(Exception):
         super().__init__(message)
 
 
-def resolve_sso_redirect_uri(settings: Settings, realm: str | None) -> str:
-    """Map X-Stakesmfg-Request-Realm to the WorkOS redirect URI for that origin."""
-    normalized = (realm or "").strip().lower()
-    if normalized == "internal":
-        redirect_uri = settings.workos_redirect_url_internal.strip()
-    elif normalized == "eastlake":
-        redirect_uri = settings.workos_redirect_url_eastlake.strip()
-    else:
+def normalized_request_realm(settings: Settings, realm: str | None) -> str:
+    """Resolve realm from header, with optional local-dev default when header is absent."""
+    value = (realm or "").strip().lower()
+    if not value:
+        value = settings.request_realm_default.strip().lower()
+    if value not in (_REALM_INTERNAL, _REALM_EASTLAKE):
         raise RequestRealmError()
+    return value
 
-    if not redirect_uri:
+
+def public_base_url_for_realm(settings: Settings, realm: str) -> str:
+    """Public dashboard base URL (scheme + host, no trailing slash) for a resolved realm."""
+    if realm == _REALM_INTERNAL:
+        base = settings.dashboard_public_base_url_internal.strip()
+    else:
+        base = settings.dashboard_public_base_url_eastlake.strip()
+    if not base:
         raise RequestRealmError()
-    return redirect_uri
+    return base.rstrip("/")
+
+
+def build_callback_url(base_url: str, path: str) -> str:
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    return f"{base_url.rstrip('/')}{normalized_path}"
+
+
+def resolve_sso_redirect_uri(settings: Settings, realm: str | None) -> str:
+    """WorkOS AuthKit callback URL for the request realm."""
+    resolved = normalized_request_realm(settings, realm)
+    return build_callback_url(
+        public_base_url_for_realm(settings, resolved),
+        WORKOS_SSO_CALLBACK_PATH,
+    )
+
+
+def resolve_ninjaone_redirect_uri(settings: Settings, realm: str | None) -> str:
+    """NinjaOne OAuth callback URL for the request realm."""
+    resolved = normalized_request_realm(settings, realm)
+    return build_callback_url(
+        public_base_url_for_realm(settings, resolved),
+        settings.ninjaone_oauth_redirect_path,
+    )

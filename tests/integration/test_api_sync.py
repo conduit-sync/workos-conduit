@@ -79,7 +79,7 @@ def test_trigger_sync_with_sso_session(settings_override, monkeypatch):
     settings = settings_override.model_copy(
         update={
             "workos_sso_internal_org_client_id": "client_test",
-            "workos_redirect_url_internal": "http://testserver/auth/callback",
+            "dashboard_public_base_url_internal": "http://testserver",
         }
     )
     engine = MagicMock(spec=SyncEngine)

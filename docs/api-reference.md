@@ -341,7 +341,8 @@ or
 | Status | Condition | Body |
 |---|---|---|
 | `401 Unauthorized` | Missing or invalid auth | `{"detail":"Invalid or missing authentication (X-API-Key or SSO session)"}` |
-| `400 Bad Request` | `DASHBOARD_PUBLIC_BASE_URL` is empty | `{"detail":"DASHBOARD_PUBLIC_BASE_URL must be set for dashboard OAuth flow"}` |
+| `403 Forbidden` | Missing/invalid `X-Stakesmfg-Request-Realm` (and no `REQUEST_REALM_DEFAULT`) | `{"detail":"Not allowed origin"}` |
+| `403 Forbidden` | Realm redirect URL not configured | `{"detail":"Not allowed origin"}` |
 | `400 Bad Request` | `NINJAONE_OAUTH_REFRESH_TOKEN_SSM_PARAM` is empty | `{"detail":"NINJAONE_OAUTH_REFRESH_TOKEN_SSM_PARAM must be set to enable dashboard OAuth flow"}` |
 
 ---

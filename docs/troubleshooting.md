@@ -54,7 +54,7 @@ aws ssm get-parameter \
   --with-decryption
 ```
 
-- If dashboard callback fails, confirm `DASHBOARD_PUBLIC_BASE_URL` exactly matches the redirect URI configured in the NinjaOne OAuth app.
+- If dashboard callback fails, confirm `DASHBOARD_PUBLIC_BASE_URL_*` for the active realm plus `/dashboard/oauth/ninjaone/callback` matches the redirect URI registered in NinjaOne and sent on `/start`.
 
 **Fix**:
 

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
 from pydantic import AliasChoices, Field, computed_field, model_validator
@@ -32,16 +33,6 @@ class Settings(BaseSettings):
             "WORKOS_SSO_CLIENT_ID",
         ),
     )
-    workos_sso_internal_org_redirect_uri: str = Field(
-        default="",
-        validation_alias=AliasChoices(
-            "WORKOS_SSO_INTERNAL_ORG_REDIRECT_URI",
-            "WORKOS_DASHBOARD_SSO_REDIRECT_URI",
-            "WORKOS_SSO_REDIRECT_URI",
-        ),
-    )
-    workos_redirect_url_internal: str = ""
-    workos_redirect_url_eastlake: str = ""
     workos_sso_internal_org_organization_id: str = Field(
         default="",
         validation_alias=AliasChoices(
@@ -130,7 +121,11 @@ class Settings(BaseSettings):
     dashboard_enabled: bool = True
     dashboard_run_history_limit: int = 50
     dashboard_auto_refresh_seconds: int = 60
-    dashboard_public_base_url: str = ""
+    # Per-realm public URL of this app (no trailing slash). OAuth callbacks are base + fixed path.
+    dashboard_public_base_url_internal: str = ""
+    dashboard_public_base_url_eastlake: str = ""
+    # Local dev only: fallback when X-Stakesmfg-Request-Realm is absent (omit in production).
+    request_realm_default: str = ""
 
     # Logging
     log_level: str = "INFO"
@@ -163,7 +158,7 @@ class Settings(BaseSettings):
         return self.workos_customer_portal_invite_role_slug.strip()
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=None if os.getenv("WORKOS_CONDUIT_TESTING") else ".env",
         case_sensitive=False,
         populate_by_name=True,
     )

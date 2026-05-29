@@ -40,7 +40,7 @@ Key variables:
 | `NINJAONE_OAUTH_CLIENT_ID` | required (ninjaone) | NinjaOne OAuth app client ID |
 | `NINJAONE_OAUTH_CLIENT_SECRET` | required (ninjaone) | NinjaOne OAuth app client secret |
 | `NINJAONE_OAUTH_REFRESH_TOKEN_SSM_PARAM` | `/workos-conduit/ninjaone/oauth-refresh-token` | SecureString parameter storing refresh-token payload |
-| `DASHBOARD_PUBLIC_BASE_URL` | required for dashboard OAuth flow | Public base URL used to build OAuth callback URI |
+| `DASHBOARD_PUBLIC_BASE_URL_INTERNAL` / `_EASTLAKE` | required for SSO & dashboard OAuth | Per-realm public app URL; callbacks are derived (see docs) |
 | `CURSOR_BACKEND` | `aws` | Cursor persistence: `aws` (SSM), `local` (file, survives restarts), `memory` (in-process only) |
 | `STATE_BACKEND` | `aws` | Run record persistence: `aws` (S3) or `local` (filesystem under `LOCAL_STATE_DIR`) |
 | `LOCAL_STATE_DIR` | `.local-state` | Root dir for local backends. Cursor: `cursor.txt`. Runs: `runs/YYYYMMDDHHMMSS_{id}.json` |

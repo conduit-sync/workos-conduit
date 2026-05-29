@@ -5,13 +5,12 @@ from __future__ import annotations
 
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 from urllib.parse import urlencode
 
 import httpx
 import structlog
-from typing import Annotated
-
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -20,6 +19,12 @@ from src.adapters.ninjaone.refresh_token_store import (
     SsmRefreshTokenStore,
 )
 from src.auth.action_auth import require_dashboard_or_api_key
+from src.auth.request_realm import (
+    NOT_ALLOWED_ORIGIN,
+    REQUEST_REALM_HEADER,
+    RequestRealmError,
+    resolve_ninjaone_redirect_uri,
+)
 from src.config import Settings
 from src.deps import get_settings
 
@@ -27,7 +32,8 @@ log = structlog.get_logger()
 router = APIRouter(prefix="/dashboard/oauth/ninjaone", tags=["dashboard"])
 
 _STATE_TTL_SECONDS = 600
-_oauth_state_cache: dict[str, datetime] = {}
+# state -> (issued_at, redirect_uri used at authorize time)
+_oauth_state_cache: dict[str, tuple[datetime, str]] = {}
 
 
 class OAuthStartResponse(BaseModel):
@@ -37,7 +43,7 @@ class OAuthStartResponse(BaseModel):
 def _prune_state_cache(now: datetime) -> None:
     expired = [
         state
-        for state, issued_at in _oauth_state_cache.items()
+        for state, (issued_at, _) in _oauth_state_cache.items()
         if (now - issued_at).total_seconds() > _STATE_TTL_SECONDS
     ]
     for state in expired:
@@ -46,6 +52,7 @@ def _prune_state_cache(now: datetime) -> None:
 
 @router.post("/start")
 async def oauth_start(
+    request: Request,
     response: Response,
     _: Annotated[None, Depends(require_dashboard_or_api_key)],
     settings: Annotated[Settings, Depends(get_settings)],
@@ -55,21 +62,18 @@ async def oauth_start(
             status_code=400,
             detail="NINJAONE_OAUTH_REFRESH_TOKEN_SSM_PARAM must be set to enable dashboard OAuth flow",
         )
-    if not settings.dashboard_public_base_url:
-        raise HTTPException(
-            status_code=400,
-            detail="DASHBOARD_PUBLIC_BASE_URL must be set for dashboard OAuth flow",
+    try:
+        redirect_uri = resolve_ninjaone_redirect_uri(
+            settings, request.headers.get(REQUEST_REALM_HEADER)
         )
+    except RequestRealmError:
+        raise HTTPException(status_code=403, detail=NOT_ALLOWED_ORIGIN) from None
 
     now = datetime.now(tz=UTC)
     _prune_state_cache(now)
     state = secrets.token_hex(32)
-    _oauth_state_cache[state] = now
+    _oauth_state_cache[state] = (now, redirect_uri)
 
-    redirect_uri = (
-        f"{settings.dashboard_public_base_url.rstrip('/')}"
-        f"{settings.ninjaone_oauth_redirect_path}"
-    )
     authorize_url = (
         f"{settings.ninjaone_base_url.rstrip('/')}{settings.ninjaone_oauth_authorize_path}?"
         + urlencode(
@@ -116,8 +120,13 @@ async def oauth_callback(
 
     now = datetime.now(tz=UTC)
     _prune_state_cache(now)
-    issued_at = _oauth_state_cache.pop(state, None)
-    if not issued_at or (now - issued_at) > timedelta(seconds=_STATE_TTL_SECONDS):
+    cached = _oauth_state_cache.pop(state, None)
+    if not cached:
+        return RedirectResponse(
+            url="/?oauth_status=error&detail=invalid_state", status_code=303
+        )
+    issued_at, redirect_uri = cached
+    if (now - issued_at).total_seconds() > _STATE_TTL_SECONDS:
         return RedirectResponse(
             url="/?oauth_status=error&detail=invalid_state", status_code=303
         )
@@ -126,10 +135,6 @@ async def oauth_callback(
             url="/?oauth_status=error&detail=state_cookie_mismatch", status_code=303
         )
 
-    redirect_uri = (
-        f"{settings.dashboard_public_base_url.rstrip('/')}"
-        f"{settings.ninjaone_oauth_redirect_path}"
-    )
     try:
         response = httpx.post(
             f"{settings.ninjaone_base_url.rstrip('/')}{settings.ninjaone_oauth_token_path}",
