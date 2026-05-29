@@ -27,15 +27,15 @@ class WorkOSSSOService:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._client = WorkOSClient(
-            api_key=settings.workos_api_key,
-            client_id=settings.workos_sso_client_id,
+            api_key=settings.workos_sso_internal_org_api_key,
+            client_id=settings.workos_sso_internal_org_client_id,
         )
 
-    def get_authorization_url(self, state: str) -> str:
+    def get_authorization_url(self, state: str, *, redirect_uri: str) -> str:
         return self._client.user_management.get_authorization_url(
-            redirect_uri=self._settings.workos_sso_redirect_uri,
+            redirect_uri=redirect_uri,
             state=state,
-            organization_id=self._settings.workos_sso_organization_id or None,
+            organization_id=self._settings.workos_sso_internal_org_organization_id or None,
         )
 
     def exchange_code(self, code: str) -> dict:

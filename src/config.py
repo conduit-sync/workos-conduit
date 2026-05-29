@@ -5,19 +5,71 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import computed_field, model_validator
+from pydantic import AliasChoices, Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # WorkOS
-    workos_api_key: str
+    # ── WorkOS: Internal org (directory sync + dashboard operator SSO) ───────
+    workos_sso_internal_org_api_key: str = Field(
+        validation_alias=AliasChoices(
+            "WORKOS_SSO_INTERNAL_ORG_API_KEY",
+            "WORKOS_API_KEY",
+        ),
+    )
     workos_directory_id: str
     workos_event_types: str = (
         '["dsync.user.created","dsync.user.updated","dsync.user.deleted",'
         '"dsync.group.user_added","dsync.group.user_removed"]'
     )
     workos_events_page_size: int = 100
+    # SSO enabled when workos_sso_internal_org_client_id is set.
+    workos_sso_internal_org_client_id: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "WORKOS_SSO_INTERNAL_ORG_CLIENT_ID",
+            "WORKOS_DASHBOARD_SSO_CLIENT_ID",
+            "WORKOS_SSO_CLIENT_ID",
+        ),
+    )
+    workos_sso_internal_org_redirect_uri: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "WORKOS_SSO_INTERNAL_ORG_REDIRECT_URI",
+            "WORKOS_DASHBOARD_SSO_REDIRECT_URI",
+            "WORKOS_SSO_REDIRECT_URI",
+        ),
+    )
+    workos_redirect_url_internal: str = ""
+    workos_redirect_url_eastlake: str = ""
+    workos_sso_internal_org_organization_id: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "WORKOS_SSO_INTERNAL_ORG_ORGANIZATION_ID",
+            "WORKOS_DASHBOARD_SSO_ORGANIZATION_ID",
+            "WORKOS_SSO_ORGANIZATION_ID",
+        ),
+    )
+    workos_dashboard_sync_board_role_slugs: str = "app-workos-conduit-admin-role"
+    workos_dashboard_portal_role_slugs: str = (
+        "app-workos-conduit-admin-role,app-workos-conduit-user-role"
+    )
+    workos_sso_internal_org_session_secret: str = Field(
+        default="change-me-in-production",
+        validation_alias=AliasChoices(
+            "WORKOS_SSO_INTERNAL_ORG_SESSION_SECRET",
+            "DASHBOARD_SSO_SESSION_SECRET",
+        ),
+    )
+    # Deprecated env vars (accepted but ignored — remove from .env)
+    workos_sso_role_slugs: str = ""
+
+    # ── WorkOS: Customer portal (separate org / API key — user invitations) ─
+    workos_customer_portal_api_key: str = ""
+    workos_customer_portal_organization_id: str = ""
+    workos_customer_portal_invite_role_slug: str = ""
+    workos_customer_portal_user_client_id_metadata_key: str = "client_id"
+    workos_customer_portal_default_role_slug: str = ""  # deprecated; ignored
 
     # Adapter selection
     sync_target_adapter: str = "ninjaone"
@@ -80,31 +132,16 @@ class Settings(BaseSettings):
     dashboard_auto_refresh_seconds: int = 60
     dashboard_public_base_url: str = ""
 
-    # Dashboard SSO login (WorkOS AuthKit)
-    workos_sso_client_id: str = ""
-    workos_sso_redirect_uri: str = ""
-    workos_sso_organization_id: str = ""
-    workos_sso_role_slugs: str = ""
-    # Per-menu directory role slugs (Directory Sync). Login allows any role in the
-    # union of these unless WORKOS_SSO_ROLE_SLUGS is set.
-    workos_dashboard_sync_board_role_slugs: str = "app-workos-conduit-admin-role"
-    workos_dashboard_portal_role_slugs: str = (
-        "app-workos-conduit-admin-role,app-workos-conduit-user-role"
-    )
-    dashboard_sso_session_secret: str = "change-me-in-production"
-
-    # Customer portal (separate WorkOS org/env — User Management, not directory sync)
-    workos_customer_portal_api_key: str = ""
-    workos_customer_portal_organization_id: str = ""
-    workos_customer_portal_invite_role_slug: str = ""
-    workos_customer_portal_user_client_id_metadata_key: str = "client_id"
-    # Deprecated: use WORKOS_CUSTOMER_PORTAL_INVITE_ROLE_SLUG
-    workos_customer_portal_default_role_slug: str = ""
+    # Logging
+    log_level: str = "INFO"
+    log_output: str = "stdout"  # stdout | file | both
+    log_format: str = "json"  # json | console
+    log_file_path: str = "/var/log/workos-conduit/app.log"
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def sso_enabled(self) -> bool:
-        return bool(self.workos_sso_client_id.strip())
+        return bool(self.workos_sso_internal_org_client_id.strip())
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -114,23 +151,22 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def customer_portal_api_key(self) -> str:
-        return self.workos_customer_portal_api_key.strip() or self.workos_api_key
+        """Portal org API key; uses internal org API key only when portal key is unset."""
+        return (
+            self.workos_customer_portal_api_key.strip()
+            or self.workos_sso_internal_org_api_key
+        )
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def customer_portal_invite_role_slug(self) -> str:
-        return (
-            self.workos_customer_portal_invite_role_slug.strip()
-            or self.workos_customer_portal_default_role_slug.strip()
-        )
+        return self.workos_customer_portal_invite_role_slug.strip()
 
-    # Logging
-    log_level: str = "INFO"
-    log_output: str = "stdout"  # stdout | file | both
-    log_format: str = "json"  # json | console
-    log_file_path: str = "/var/log/workos-conduit/app.log"
-
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        populate_by_name=True,
+    )
 
     @model_validator(mode="after")
     def validate_config(self) -> Settings:
@@ -150,6 +186,12 @@ class Settings(BaseSettings):
                 _j.loads(raw)
             except Exception as e:
                 raise ValueError(f"workos_event_types is not valid JSON: {e}") from e
+        if self.workos_customer_portal_organization_id.strip():
+            if not self.workos_customer_portal_invite_role_slug.strip():
+                raise ValueError(
+                    "workos_customer_portal_invite_role_slug is required when "
+                    "workos_customer_portal_organization_id is set"
+                )
         return self
 
 

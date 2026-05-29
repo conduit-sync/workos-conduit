@@ -53,7 +53,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         SessionMiddleware,
-        secret_key=settings.dashboard_sso_session_secret,
+        secret_key=settings.workos_sso_internal_org_session_secret,
         session_cookie="conduit_session",
         https_only=False,
         same_site="lax",

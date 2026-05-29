@@ -12,7 +12,7 @@ from src.adapters.ninjaone.group_role_map import OrgGroupMapping, load_group_rol
 from src.config import Settings
 
 _BASE = {
-    "workos_api_key": "sk_test",
+    "workos_sso_internal_org_api_key": "sk_test",
     "workos_directory_id": "dir_test",
     "ninjaone_oauth_client_id": "test-client-id",
     "ninjaone_oauth_client_secret": "test-client-secret",

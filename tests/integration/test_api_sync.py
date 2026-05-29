@@ -73,10 +73,14 @@ def test_trigger_sync_wrong_api_key(settings_override):
 
 
 def test_trigger_sync_with_sso_session(settings_override, monkeypatch):
+    from src.auth.request_realm import REQUEST_REALM_HEADER
     from src.auth.sso import WorkOSSSOService
 
     settings = settings_override.model_copy(
-        update={"workos_sso_client_id": "client_test"}
+        update={
+            "workos_sso_internal_org_client_id": "client_test",
+            "workos_redirect_url_internal": "http://testserver/auth/callback",
+        }
     )
     engine = MagicMock(spec=SyncEngine)
     engine.run_cycle.return_value = _make_run_record()
@@ -101,7 +105,11 @@ def test_trigger_sync_with_sso_session(settings_override, monkeypatch):
     from fastapi.testclient import TestClient
 
     with TestClient(app) as client:
-        client.get("/auth/sso/initiate", follow_redirects=False)
+        client.get(
+            "/auth/sso/initiate",
+            headers={REQUEST_REALM_HEADER: "internal"},
+            follow_redirects=False,
+        )
         client.get(
             f"/auth/callback?code=test-code&state={fixed_state}",
             follow_redirects=False,

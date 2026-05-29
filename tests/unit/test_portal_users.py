@@ -100,7 +100,7 @@ def test_invite_user_requires_role_slug(settings_override):
         update={
             "workos_customer_portal_organization_id": "org_portal",
             "workos_customer_portal_invite_role_slug": "",
-            "workos_customer_portal_default_role_slug": "",
+            "workos_customer_portal_invite_role_slug": "",
         }
     )
     service = PortalUsersService(settings)

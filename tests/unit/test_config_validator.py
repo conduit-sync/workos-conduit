@@ -9,7 +9,7 @@ from src.config import Settings
 
 def _base(**kwargs) -> dict:
     defaults = dict(
-        workos_api_key="sk_test",
+        workos_sso_internal_org_api_key="sk_test",
         workos_directory_id="directory_test",
         ninjaone_oauth_client_id="test-client-id",
         ninjaone_oauth_client_secret="test-client-secret",
@@ -21,7 +21,7 @@ def _base(**kwargs) -> dict:
 
 def test_valid_settings_constructs():
     s = Settings(**_base())
-    assert s.workos_api_key == "sk_test"
+    assert s.workos_sso_internal_org_api_key == "sk_test"
 
 
 @pytest.mark.parametrize(

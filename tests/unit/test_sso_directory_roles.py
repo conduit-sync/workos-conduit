@@ -49,8 +49,8 @@ def test_find_directory_user_by_email_paginates() -> None:
 def test_validate_login_roles_allows_matching_slug(settings_override) -> None:
     settings = settings_override.model_copy(
         update={
-            "workos_sso_client_id": "client_test",
-            "workos_sso_role_slugs": "app-workos-conduit-admin-role",
+            "workos_sso_internal_org_client_id": "client_test",
+            "workos_dashboard_sync_board_role_slugs": "app-workos-conduit-admin-role",
         }
     )
     service = WorkOSSSOService(settings)
@@ -60,8 +60,8 @@ def test_validate_login_roles_allows_matching_slug(settings_override) -> None:
 def test_load_directory_roles_denies_missing_user(settings_override) -> None:
     settings = settings_override.model_copy(
         update={
-            "workos_sso_client_id": "client_test",
-            "workos_sso_role_slugs": "app-workos-conduit-admin-role",
+            "workos_sso_internal_org_client_id": "client_test",
+            "workos_dashboard_sync_board_role_slugs": "app-workos-conduit-admin-role",
         }
     )
     service = WorkOSSSOService(settings)
@@ -76,8 +76,8 @@ def test_load_directory_roles_denies_missing_user(settings_override) -> None:
 def test_validate_login_roles_denies_wrong_role(settings_override) -> None:
     settings = settings_override.model_copy(
         update={
-            "workos_sso_client_id": "client_test",
-            "workos_sso_role_slugs": "app-workos-conduit-admin-role",
+            "workos_sso_internal_org_client_id": "client_test",
+            "workos_dashboard_sync_board_role_slugs": "app-workos-conduit-admin-role",
         }
     )
     service = WorkOSSSOService(settings)
@@ -89,7 +89,7 @@ def test_validate_login_roles_denies_wrong_role(settings_override) -> None:
 
 def test_load_directory_roles_returns_slugs(settings_override) -> None:
     settings = settings_override.model_copy(
-        update={"workos_sso_client_id": "client_test"}
+        update={"workos_sso_internal_org_client_id": "client_test"}
     )
     service = WorkOSSSOService(settings)
     service._client = MagicMock()

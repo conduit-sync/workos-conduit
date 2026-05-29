@@ -5,6 +5,7 @@ import respx
 from fastapi.testclient import TestClient
 from moto import mock_aws
 
+from src.auth.request_realm import REQUEST_REALM_HEADER
 from src.main import create_app
 
 
@@ -14,8 +15,8 @@ def test_oauth_start_with_sso_session(settings_override, monkeypatch):
 
     settings = settings_override.model_copy(
         update={
-            "workos_sso_client_id": "client_test",
-            "workos_sso_redirect_uri": "http://testserver/auth/callback",
+            "workos_sso_internal_org_client_id": "client_test",
+            "workos_redirect_url_internal": "http://testserver/auth/callback",
             "dashboard_public_base_url": "http://localhost:8080",
         }
     )
@@ -44,7 +45,11 @@ def test_oauth_start_with_sso_session(settings_override, monkeypatch):
     )
 
     client = TestClient(app)
-    client.get("/auth/sso/initiate", follow_redirects=False)
+    client.get(
+        "/auth/sso/initiate",
+        headers={REQUEST_REALM_HEADER: "internal"},
+        follow_redirects=False,
+    )
     client.get(
         f"/auth/callback?code=test-code&state={fixed_state}",
         follow_redirects=False,

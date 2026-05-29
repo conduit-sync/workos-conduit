@@ -151,7 +151,7 @@ def main() -> None:
 
     import workos as workos_sdk
 
-    client = workos_sdk.WorkOSClient(api_key=settings.workos_api_key)
+    client = workos_sdk.WorkOSClient(api_key=settings.workos_sso_internal_org_api_key)
     adapter = get_adapter(adapter_key, settings)
 
     allowed_user_ids = _collect_allowed_user_ids(client, settings)

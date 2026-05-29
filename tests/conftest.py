@@ -15,7 +15,7 @@ from src.core.models import RunRecord, RunStatus
 FIXTURES = Path(__file__).parent / "fixtures"
 
 _TEST_ENV = {
-    "WORKOS_API_KEY": "sk_test_key",
+    "WORKOS_SSO_INTERNAL_ORG_API_KEY": "sk_test_key",
     "WORKOS_DIRECTORY_ID": "directory_test",
     "SYNC_TARGET_ADAPTER": "ninjaone",
     "NINJAONE_OAUTH_CLIENT_ID": "test-client-id",
@@ -47,7 +47,7 @@ def _reset_settings_cache(monkeypatch):
 def settings_override() -> Settings:
     """Returns Settings with all required fields set to safe test values."""
     return Settings(
-        workos_api_key="sk_test_key",
+        workos_sso_internal_org_api_key="sk_test_key",
         workos_directory_id="directory_test",
         sync_target_adapter="ninjaone",
         ninjaone_oauth_client_id="test-client-id",

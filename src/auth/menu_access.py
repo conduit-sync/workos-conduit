@@ -22,9 +22,7 @@ def portal_roles(settings: Settings) -> set[str]:
 
 
 def login_allowed_roles(settings: Settings) -> set[str]:
-    """Roles that may sign in to the dashboard at all."""
-    if settings.workos_sso_role_slugs.strip():
-        return parse_role_slugs(settings.workos_sso_role_slugs)
+    """Roles that may sign in to the dashboard (union of all menu role allowlists)."""
     return sync_board_roles(settings) | portal_roles(settings)
 
 

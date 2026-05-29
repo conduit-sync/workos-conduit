@@ -8,11 +8,17 @@ from pathlib import Path
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.auth.menu_access import post_login_redirect_url
+from src.auth.request_realm import (
+    NOT_ALLOWED_ORIGIN,
+    REQUEST_REALM_HEADER,
+    RequestRealmError,
+    resolve_sso_redirect_uri,
+)
 from src.auth.session import clear_session, set_session_user
 from src.auth.sso import SSOAccessDeniedError, WorkOSSSOService
 from src.config import Settings
@@ -46,10 +52,17 @@ async def sso_initiate(
     request: Request,
     settings: Annotated[Settings, Depends(get_settings)] = None,
 ) -> RedirectResponse:
+    realm = request.headers.get(REQUEST_REALM_HEADER)
+    try:
+        redirect_uri = resolve_sso_redirect_uri(settings, realm)
+    except RequestRealmError:
+        raise HTTPException(status_code=403, detail=NOT_ALLOWED_ORIGIN) from None
+
     state = secrets.token_hex(32)
     request.session["sso_state"] = state
+    request.session["sso_redirect_uri"] = redirect_uri
     sso = WorkOSSSOService(settings)
-    auth_url = sso.get_authorization_url(state)
+    auth_url = sso.get_authorization_url(state, redirect_uri=redirect_uri)
     return RedirectResponse(url=auth_url, status_code=302)
 
 

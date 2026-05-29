@@ -35,7 +35,7 @@ def _parse_event_types(raw: str) -> list[str]:
 
 class WorkOSEventsClient:
     def __init__(self, settings: Settings) -> None:
-        self._client = workos.WorkOSClient(api_key=settings.workos_api_key)
+        self._client = workos.WorkOSClient(api_key=settings.workos_sso_internal_org_api_key)
         self._types = _parse_event_types(settings.workos_event_types)
         self._page_size = settings.workos_events_page_size
 
