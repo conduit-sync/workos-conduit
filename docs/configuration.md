@@ -184,7 +184,7 @@ See `infra/aws/iam-task-role-policy.json` for the reference policy.
 |---|---|---|---|---|
 | `SERVER_HOST` | `str` | `0.0.0.0` | No | Host to bind the uvicorn server to |
 | `SERVER_PORT` | `int` | `8080` | No | Port to listen on |
-| `API_SECRET_KEY` | `str` | `change-me-in-production` | **Yes** (in production) | Secret token for `X-API-Key` header authentication on `POST /api/v1/sync/trigger` and `POST /dashboard/oauth/ninjaone/start`. The default value is intentionally insecure — always override in production. |
+| `API_SECRET_KEY` | `str` | `change-me-in-production` | **Yes** (in production) | `X-API-Key` for `POST /api/v1/sync/trigger` and `POST /dashboard/oauth/ninjaone/start`. Required for automation and when SSO is off; when dashboard SSO is enabled, signed-in users may call those endpoints with their session cookie instead. The default value is intentionally insecure — always override in production. |
 
 ---
 

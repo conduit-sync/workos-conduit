@@ -72,6 +72,48 @@ def test_trigger_sync_wrong_api_key(settings_override):
     assert resp.status_code == 401
 
 
+def test_trigger_sync_with_sso_session(settings_override, monkeypatch):
+    from src.auth.sso import WorkOSSSOService
+
+    settings = settings_override.model_copy(
+        update={"workos_sso_client_id": "client_test"}
+    )
+    engine = MagicMock(spec=SyncEngine)
+    engine.run_cycle.return_value = _make_run_record()
+    app = _make_app(settings, engine)
+
+    fixed_state = "b" * 64
+    monkeypatch.setattr(
+        "src.dashboard.login_router.secrets.token_hex",
+        lambda _n: fixed_state,
+    )
+    monkeypatch.setattr(
+        WorkOSSSOService,
+        "exchange_code",
+        lambda self, code: {
+            "id": "user_1",
+            "email": "ops@example.com",
+            "first_name": "Ops",
+            "last_name": "User",
+        },
+    )
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as client:
+        client.get("/auth/sso/initiate", follow_redirects=False)
+        client.get(
+            f"/auth/callback?code=test-code&state={fixed_state}",
+            follow_redirects=False,
+        )
+        resp = client.post(
+            "/api/v1/sync/trigger",
+            json={"trigger_source": "dashboard"},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["run_id"] == "run-test-001"
+
+
 def test_trigger_sync_missing_api_key(settings_override):
     engine = MagicMock(spec=SyncEngine)
     app = _make_app(settings_override, engine)

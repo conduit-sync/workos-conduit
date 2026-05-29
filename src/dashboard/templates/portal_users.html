@@ -1,0 +1,341 @@
+{% extends "base.html" %}
+{% from "includes/flash_banner.html" import flash_banner %}
+{% block content %}
+
+<div style="margin-bottom:1.5rem;">
+  <h1 style="font-size:1.35rem;font-weight:700;margin-bottom:0.35rem;">Customer Portal Users</h1>
+  <p style="font-size:0.875rem;color:var(--muted);max-width:42rem;">
+    Invite users to the customer portal WorkOS organization. The invite email assigns the configured role;
+    <code>{{ client_id_metadata_key }}</code> metadata is stored on the user record.
+  </p>
+</div>
+
+{{ flash_banner('success', 'Invitation sent to ' ~ created_email ~ '. The user appears in the table as Pending until they accept the email invite.') if created_email else '' }}
+{{ flash_banner('error', form_error) if form_error else '' }}
+
+{% if not portal_enabled %}
+<div class="card">
+  <p style="color:var(--amber);font-size:.875rem;">
+    Set <code>WORKOS_CUSTOMER_PORTAL_ORGANIZATION_ID</code> in your environment to enable this page.
+  </p>
+</div>
+{% else %}
+
+<div style="display:grid;grid-template-columns:minmax(260px,340px) 1fr;gap:1.5rem;align-items:start;">
+  <div class="card">
+    <div class="section-title">Invite user</div>
+    <form method="post" action="/portal/users" style="display:flex;flex-direction:column;gap:0.85rem;">
+      <label style="font-size:.8rem;color:var(--muted);">
+        Email
+        <input type="email" name="email" required autocomplete="off"
+          pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
+          title="Enter a valid email address"
+          style="display:block;width:100%;margin-top:.35rem;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.5rem .75rem;border-radius:var(--radius);font-family:'IBM Plex Mono',monospace;font-size:.85rem;" />
+      </label>
+      <label style="font-size:.8rem;color:var(--muted);">
+        Client ID
+        <input type="text" name="client_id" required autocomplete="off"
+          inputmode="numeric" pattern="[0-9]+"
+          title="Numbers only"
+          style="display:block;width:100%;margin-top:.35rem;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.5rem .75rem;border-radius:var(--radius);font-family:'IBM Plex Mono',monospace;font-size:.85rem;" />
+      </label>
+      <button type="submit" class="btn btn-primary" style="margin-top:.25rem;">Send invitation</button>
+    </form>
+    <p style="font-size:.72rem;color:var(--text-dim);margin-top:1rem;line-height:1.5;">
+      Org: <span class="mono">{{ organization_id }}</span><br>
+      Invite role: <span class="mono">{{ invite_role_slug or '(not set)' }}</span><br>
+      Metadata key: <span class="mono">{{ client_id_metadata_key }}</span>
+    </p>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden;" id="portal-users-section">
+    <div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+      <div class="section-title" style="margin-bottom:0;">Users in organization</div>
+      {% if users %}
+      <span class="chip" id="portal-users-count">{{ users | length }} users</span>
+      {% endif %}
+    </div>
+    {% if load_error %}
+    <p style="padding:1rem 1.25rem;color:var(--red);font-size:.875rem;">Failed to load users: {{ load_error }}</p>
+    {% elif users %}
+    <div class="portal-users-toolbar">
+      <label class="portal-users-field">
+        <span class="portal-users-label">Search</span>
+        <input
+          type="search"
+          id="portal-users-search"
+          placeholder="First name, last name, email, client ID, membership…"
+          autocomplete="off"
+        />
+      </label>
+      <button type="button" class="btn btn-secondary" id="portal-users-clear">Clear</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table id="portal-users-table">
+        <thead>
+          <tr>
+            <th><button type="button" class="portal-users-sort" data-sort="firstName">First name</button></th>
+            <th><button type="button" class="portal-users-sort" data-sort="lastName">Last name</button></th>
+            <th><button type="button" class="portal-users-sort" data-sort="email">Email</button></th>
+            <th><button type="button" class="portal-users-sort" data-sort="clientId">Client ID</button></th>
+            <th><button type="button" class="portal-users-sort" data-sort="membership">Membership</button></th>
+            <th><button type="button" class="portal-users-sort" data-sort="createdAt">Created</button></th>
+          </tr>
+        </thead>
+        <tbody id="portal-users-tbody">
+          {% for u in users %}
+          <tr
+            class="portal-user-row"
+            data-first-name="{{ (u.first_name or '') | e }}"
+            data-last-name="{{ (u.last_name or '') | e }}"
+            data-email="{{ (u.email or '') | e }}"
+            data-client-id="{{ (u.client_id or '') | e }}"
+            data-membership="{{ u.membership | e }}"
+            data-created-at="{{ (u.created_at_iso or '') | e }}"
+            data-search="{{ (u.first_name ~ ' ' ~ u.last_name ~ ' ' ~ u.email ~ ' ' ~ u.client_id ~ ' ' ~ u.membership ~ ' ' ~ u.created_at_label) | e }}"
+          >
+            <td>{{ u.first_name or '—' }}</td>
+            <td>{{ u.last_name or '—' }}</td>
+            <td>{{ u.email }}</td>
+            <td class="mono">{{ u.client_id or '—' }}</td>
+            <td>
+              {% if u.membership == 'pending' %}
+              <span
+                class="portal-membership portal-membership-hint"
+                title="This user has not accepted the invitation yet. They must accept the invite and complete setup."
+                aria-label="Pending membership: user has not accepted the invitation yet and must complete setup."
+                tabindex="0"
+              >
+                <span class="portal-membership-dot portal-membership-pending"></span>
+                Pending
+              </span>
+              {% else %}
+              <span class="portal-membership">
+                <span class="portal-membership-dot portal-membership-active"></span>
+                Active
+              </span>
+              {% endif %}
+            </td>
+            <td class="mono" style="font-size:.8rem;color:var(--text-dim);white-space:nowrap;">
+              {{ u.created_at_label or '—' }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p id="portal-users-empty" class="portal-users-empty" hidden>No users match your search.</p>
+    {% else %}
+    <p style="padding:1.25rem;color:var(--muted);font-size:.875rem;">No users found in this organization yet.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if portal_enabled and users %}
+<style>
+  .portal-users-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .portal-users-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 12rem;
+    flex: 1 1 16rem;
+  }
+  .portal-users-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .portal-users-toolbar input[type="search"] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.85rem;
+    outline: none;
+  }
+  .portal-users-toolbar input:focus {
+    border-color: var(--blue);
+  }
+  .portal-users-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    cursor: pointer;
+    text-align: left;
+  }
+  .portal-users-sort:hover {
+    color: var(--text);
+  }
+  .portal-users-sort[aria-sort="ascending"]::after,
+  .portal-users-sort[aria-sort="descending"]::after {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--blue);
+  }
+  .portal-users-sort[aria-sort="ascending"]::after { content: '↑'; }
+  .portal-users-sort[aria-sort="descending"]::after { content: '↓'; }
+  tr.portal-user-row[hidden] { display: none; }
+  .portal-membership {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.875rem;
+  }
+  .portal-membership-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .portal-membership-pending { background: var(--muted); }
+  .portal-membership-active { background: var(--green); }
+  .portal-membership-hint {
+    cursor: help;
+    border-bottom: 1px dotted var(--muted);
+  }
+  .portal-users-empty {
+    padding: 1.25rem 1.5rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.875rem;
+    border-top: 1px solid var(--border);
+  }
+</style>
+<script>
+(function () {
+  const section = document.getElementById('portal-users-section');
+  if (!section) return;
+
+  const tbody = document.getElementById('portal-users-tbody');
+  const searchInput = document.getElementById('portal-users-search');
+  const clearBtn = document.getElementById('portal-users-clear');
+  const countEl = document.getElementById('portal-users-count');
+  const emptyEl = document.getElementById('portal-users-empty');
+  const sortButtons = Array.from(section.querySelectorAll('.portal-users-sort'));
+
+  let rows = Array.from(tbody.querySelectorAll('.portal-user-row'));
+  const total = rows.length;
+  let sortKey = null;
+  let sortDir = 'asc';
+
+  function compareValues(a, b, key) {
+    if (key === 'clientId') {
+      const aEmpty = !a;
+      const bEmpty = !b;
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      const an = parseInt(a, 10);
+      const bn = parseInt(b, 10);
+      if (!Number.isNaN(an) && !Number.isNaN(bn)) {
+        return an - bn;
+      }
+    }
+    if (key === 'createdAt') {
+      const aEmpty = !a;
+      const bEmpty = !b;
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      return new Date(a).getTime() - new Date(b).getTime();
+    }
+    return String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+  }
+
+  function sortRows() {
+    if (!sortKey) return;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    rows.sort((ra, rb) => {
+      const av = ra.dataset[sortKey] || '';
+      const bv = rb.dataset[sortKey] || '';
+      return compareValues(av, bv, sortKey) * dir;
+    });
+    rows.forEach((row) => tbody.appendChild(row));
+  }
+
+  function updateSortIndicators() {
+    sortButtons.forEach((btn) => {
+      const key = btn.dataset.sort;
+      if (key === sortKey) {
+        btn.setAttribute('aria-sort', sortDir === 'asc' ? 'ascending' : 'descending');
+      } else {
+        btn.removeAttribute('aria-sort');
+      }
+    });
+  }
+
+  function applyView() {
+    const query = searchInput.value.trim().toLowerCase();
+    let visible = 0;
+
+    rows.forEach((row) => {
+      const haystack = (row.dataset.search || '').toLowerCase();
+      const show = !query || haystack.includes(query);
+      row.hidden = !show;
+      if (show) visible += 1;
+    });
+
+    countEl.textContent =
+      visible === total
+        ? `${total} users`
+        : `${visible} of ${total} users`;
+    emptyEl.hidden = visible > 0;
+  }
+
+  sortButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.sort;
+      if (sortKey === key) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortKey = key;
+        sortDir = 'asc';
+      }
+      sortRows();
+      updateSortIndicators();
+      applyView();
+    });
+  });
+
+  searchInput.addEventListener('input', applyView);
+  clearBtn.addEventListener('click', () => {
+    searchInput.value = '';
+    applyView();
+    searchInput.focus();
+  });
+
+  sortKey = 'createdAt';
+  sortDir = 'desc';
+  sortRows();
+  updateSortIndicators();
+  applyView();
+})();
+</script>
+{% endif %}
+
+{% endif %}
+
+{% endblock %}

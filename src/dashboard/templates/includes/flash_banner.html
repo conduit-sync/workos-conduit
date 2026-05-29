@@ -1,0 +1,8 @@
+{% macro flash_banner(kind, message) %}
+{% if message %}
+<div class="dashboard-flash dashboard-flash-{{ kind }}" role="alert">
+  <div class="dashboard-flash-body">{{ message }}</div>
+  <button type="button" class="dashboard-flash-dismiss" aria-label="Dismiss notification">×</button>
+</div>
+{% endif %}
+{% endmacro %}

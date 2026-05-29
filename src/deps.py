@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from fastapi import Depends
+from fastapi import Depends, Request
 
 from src.adapters.base import BaseTargetAdapter
 from src.adapters.registry import get_adapter
@@ -34,6 +34,17 @@ def get_adapter_dep(settings: Settings = Depends(get_settings)) -> BaseTargetAda
 
 def get_event_router() -> EventRouter:
     return EventRouter(handlers=get_handlers())
+
+
+def get_dashboard_user(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+) -> dict | None:
+    if not settings.sso_enabled:
+        return None
+    from src.auth.session import get_session_user
+
+    return get_session_user(request)
 
 
 def get_sync_engine(

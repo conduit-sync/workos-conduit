@@ -9,7 +9,9 @@ from urllib.parse import urlencode
 
 import httpx
 import structlog
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Response
+from typing import Annotated
+
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -17,6 +19,7 @@ from src.adapters.ninjaone.refresh_token_store import (
     RefreshTokenRecord,
     SsmRefreshTokenStore,
 )
+from src.auth.action_auth import require_dashboard_or_api_key
 from src.config import Settings
 from src.deps import get_settings
 
@@ -41,19 +44,12 @@ def _prune_state_cache(now: datetime) -> None:
         _oauth_state_cache.pop(state, None)
 
 
-def _ensure_api_key(settings: Settings, x_api_key: str | None, *, source: str) -> None:
-    if not x_api_key or x_api_key != settings.api_secret_key:
-        log.warning("dashboard_oauth_unauthorized", source=source)
-        raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key")
-
-
 @router.post("/start")
 async def oauth_start(
     response: Response,
-    settings: Settings = Depends(get_settings),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    _: Annotated[None, Depends(require_dashboard_or_api_key)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> OAuthStartResponse:
-    _ensure_api_key(settings, x_api_key, source="dashboard_oauth_start")
     if not settings.ninjaone_oauth_refresh_token_ssm_param.strip():
         raise HTTPException(
             status_code=400,

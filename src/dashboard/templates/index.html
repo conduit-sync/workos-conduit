@@ -1,19 +1,11 @@
 {% extends "base.html" %}
+{% from "includes/flash_banner.html" import flash_banner %}
 {% block content %}
 
-{% if backend_error %}
-<div style="background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.3);color:var(--red);padding:.75rem 1rem;border-radius:6px;margin-bottom:1.5rem;font-size:.875rem;">
-  <strong>Run history unavailable</strong> — state backend is not configured or unreachable. Check <code>CURSOR_BACKEND</code> / <code>STATE_BACKEND</code> settings.
-</div>
-{% endif %}
-{% if oauth_status == "success" %}
-<div style="background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.3);color:var(--green);padding:.75rem 1rem;border-radius:6px;margin-bottom:1.5rem;font-size:.875rem;">
-  <strong>Refresh token generated</strong> — NinjaOne OAuth refresh token was stored successfully.
-</div>
-{% elif oauth_status == "error" %}
-<div style="background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.3);color:var(--red);padding:.75rem 1rem;border-radius:6px;margin-bottom:1.5rem;font-size:.875rem;">
-  <strong>OAuth flow failed</strong>{% if oauth_error %} — {{ oauth_error }}{% endif %}
-</div>
+{{ flash_banner('error', 'Run history unavailable — state backend is not configured or unreachable. Check CURSOR_BACKEND / STATE_BACKEND settings.') if backend_error else '' }}
+{{ flash_banner('success', 'Refresh token generated — NinjaOne OAuth refresh token was stored successfully.') if oauth_status == "success" else '' }}
+{% if oauth_status == "error" %}
+{{ flash_banner('error', 'OAuth flow failed' ~ (' — ' ~ oauth_error if oauth_error else '')) }}
 {% endif %}
 
 <!-- ── Action Bar ── -->
@@ -21,7 +13,7 @@
   <span style="font-size:.8rem;color:var(--muted);">
     Auto-refreshes every {{ dashboard_auto_refresh_seconds }}s
   </span>
-  <button class="btn btn-primary" onclick="openModal('sync')">▶ Trigger Sync Now</button>
+  <button class="btn btn-primary" onclick="handleDashboardAction('sync')">▶ Trigger Sync Now</button>
 </div>
 
 <!-- ── Two-column layout: main content + config panel ── -->
@@ -333,7 +325,7 @@
         </tbody>
       </table>
       {% if config.ninjaone_oauth_web_enabled %}
-        <button class="btn btn-secondary btn-oauth" style="margin-top:.6rem;width:100%;" onclick="openModal('oauth')">Generate Refresh Token</button>
+        <button class="btn btn-secondary btn-oauth" style="margin-top:.6rem;width:100%;" onclick="handleDashboardAction('oauth')">Generate Refresh Token</button>
       {% else %}
         <button class="btn btn-secondary btn-oauth" style="margin-top:.6rem;width:100%;opacity:.6;cursor:not-allowed;" disabled>Generate Refresh Token</button>
         <div style="margin-top:.35rem;color:var(--muted);font-size:.7rem;">
@@ -419,7 +411,17 @@
 </div>
 
 <script>
+  const dashboardSessionAuth = {{ 'true' if current_user else 'false' }};
   let modalAction = 'sync';
+
+  function handleDashboardAction(action) {
+    if (dashboardSessionAuth) {
+      modalAction = action;
+      submitModalAction();
+      return;
+    }
+    openModal(action);
+  }
 
   function openModal(action) {
     if (window.__dashboardAutoRefreshTimer) {
@@ -466,14 +468,25 @@
     triggerSync();
   }
 
+  function privilegedFetchHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    if (!dashboardSessionAuth) {
+      const key = document.getElementById('apiKey').value.trim();
+      if (!key) return null;
+      headers['X-API-Key'] = key;
+    }
+    return headers;
+  }
+
   async function triggerSync() {
-    const key = document.getElementById('apiKey').value.trim();
-    if (!key) { showToast('API key is required', 'error'); return; }
-    closeModal();
+    const headers = privilegedFetchHeaders();
+    if (!headers) { showToast('API key is required', 'error'); return; }
+    if (!dashboardSessionAuth) closeModal();
     try {
       const resp = await fetch('/api/v1/sync/trigger', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+        credentials: 'same-origin',
+        headers,
         body: JSON.stringify({ trigger_source: 'dashboard' }),
       });
       const data = await resp.json();
@@ -489,17 +502,18 @@
   }
 
   async function startOAuth() {
-    const key = document.getElementById('apiKey').value.trim();
-    if (!key) { showToast('API key is required', 'error'); return; }
+    const headers = privilegedFetchHeaders();
+    if (!headers) { showToast('API key is required', 'error'); return; }
     if (window.__dashboardAutoRefreshTimer) {
       clearTimeout(window.__dashboardAutoRefreshTimer);
       window.__dashboardAutoRefreshTimer = null;
     }
-    closeModal();
+    if (!dashboardSessionAuth) closeModal();
     try {
       const resp = await fetch('/dashboard/oauth/ninjaone/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+        credentials: 'same-origin',
+        headers,
       });
       const data = await resp.json();
       if (resp.ok && data.authorize_url) {

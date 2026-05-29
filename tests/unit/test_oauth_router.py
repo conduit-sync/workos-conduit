@@ -9,6 +9,53 @@ from src.main import create_app
 
 
 @mock_aws
+def test_oauth_start_with_sso_session(settings_override, monkeypatch):
+    from src.auth.sso import WorkOSSSOService
+
+    settings = settings_override.model_copy(
+        update={
+            "workos_sso_client_id": "client_test",
+            "workos_sso_redirect_uri": "http://testserver/auth/callback",
+            "dashboard_public_base_url": "http://localhost:8080",
+        }
+    )
+    app = create_app()
+    app.dependency_overrides = {}
+    from src import deps
+    from src.config import get_settings
+
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[deps.get_settings] = app.dependency_overrides[get_settings]
+
+    fixed_state = "a" * 64
+    monkeypatch.setattr(
+        "src.dashboard.login_router.secrets.token_hex",
+        lambda _n: fixed_state,
+    )
+    monkeypatch.setattr(
+        WorkOSSSOService,
+        "exchange_code",
+        lambda self, code: {
+            "id": "user_1",
+            "email": "ops@example.com",
+            "first_name": "Ops",
+            "last_name": "User",
+        },
+    )
+
+    client = TestClient(app)
+    client.get("/auth/sso/initiate", follow_redirects=False)
+    client.get(
+        f"/auth/callback?code=test-code&state={fixed_state}",
+        follow_redirects=False,
+    )
+
+    resp = client.post("/dashboard/oauth/ninjaone/start")
+    assert resp.status_code == 200
+    assert "/oauth/authorize" in resp.json()["authorize_url"]
+
+
+@mock_aws
 def test_oauth_start_requires_api_key(settings_override):
     app = create_app()
     app.dependency_overrides = {}

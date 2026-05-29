@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import model_validator
+from pydantic import computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     ninjaone_oauth_refresh_token_ssm_param: str = (
         "/workos-conduit/ninjaone/oauth-refresh-token"
     )
+    # Optional SSM parameter ARN: mirrored only when NinjaOne rotates the refresh
+    # token at runtime (issuer=runtime). Leave empty to disable.
+    ninjaone_oauth_refresh_token_update_ssm_arn: str = ""
     ninjaone_oauth_refresh_token_lifetime_days: int = 30
     # Deprecated compatibility shim for existing .env files.
     ninjaone_api_key: str = ""
@@ -76,6 +79,50 @@ class Settings(BaseSettings):
     dashboard_run_history_limit: int = 50
     dashboard_auto_refresh_seconds: int = 60
     dashboard_public_base_url: str = ""
+
+    # Dashboard SSO login (WorkOS AuthKit)
+    workos_sso_client_id: str = ""
+    workos_sso_redirect_uri: str = ""
+    workos_sso_organization_id: str = ""
+    workos_sso_role_slugs: str = ""
+    # Per-menu directory role slugs (Directory Sync). Login allows any role in the
+    # union of these unless WORKOS_SSO_ROLE_SLUGS is set.
+    workos_dashboard_sync_board_role_slugs: str = "app-workos-conduit-admin-role"
+    workos_dashboard_portal_role_slugs: str = (
+        "app-workos-conduit-admin-role,app-workos-conduit-user-role"
+    )
+    dashboard_sso_session_secret: str = "change-me-in-production"
+
+    # Customer portal (separate WorkOS org/env — User Management, not directory sync)
+    workos_customer_portal_api_key: str = ""
+    workos_customer_portal_organization_id: str = ""
+    workos_customer_portal_invite_role_slug: str = ""
+    workos_customer_portal_user_client_id_metadata_key: str = "client_id"
+    # Deprecated: use WORKOS_CUSTOMER_PORTAL_INVITE_ROLE_SLUG
+    workos_customer_portal_default_role_slug: str = ""
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def sso_enabled(self) -> bool:
+        return bool(self.workos_sso_client_id.strip())
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def customer_portal_enabled(self) -> bool:
+        return bool(self.workos_customer_portal_organization_id.strip())
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def customer_portal_api_key(self) -> str:
+        return self.workos_customer_portal_api_key.strip() or self.workos_api_key
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def customer_portal_invite_role_slug(self) -> str:
+        return (
+            self.workos_customer_portal_invite_role_slug.strip()
+            or self.workos_customer_portal_default_role_slug.strip()
+        )
 
     # Logging
     log_level: str = "INFO"
