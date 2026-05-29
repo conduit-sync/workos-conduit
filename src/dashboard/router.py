@@ -16,7 +16,9 @@ from src.adapters.ninjaone.refresh_token_store import SsmRefreshTokenStore
 from src.backends.base import StateBackend
 from src.config import Settings
 from src.core.models import RunRecord, RunStatus
-from src.deps import get_settings, get_state_backend_dep
+from src.dashboard.access import require_nav_access, template_nav_context
+from src.auth.menu_access import NAV_SYNC
+from src.deps import get_dashboard_user, get_settings, get_state_backend_dep
 
 log = structlog.get_logger()
 router = APIRouter()
@@ -121,9 +123,11 @@ async def dashboard(
     request: Request,
     state_backend: Annotated[StateBackend, Depends(get_state_backend_dep)] = None,
     settings: Annotated[Settings, Depends(get_settings)] = None,
+    current_user: Annotated[dict | None, Depends(get_dashboard_user)] = None,
 ) -> HTMLResponse:
-    if not settings.dashboard_enabled:
-        raise HTTPException(status_code=404, detail="Dashboard disabled")
+    nav_denied = require_nav_access(request, settings, current_user, NAV_SYNC)
+    if nav_denied:
+        return nav_denied
 
     oauth_status = request.query_params.get("oauth_status")
     oauth_error = request.query_params.get("detail")
@@ -146,6 +150,8 @@ async def dashboard(
         request,
         "index.html",
         {
+            "active_nav": "sync",
+            "page_title": "NinjaOne Sync Board",
             "runs": runs,
             "total_runs": len(runs),
             "last_run": runs[0] if runs else None,
@@ -158,6 +164,8 @@ async def dashboard(
             "backend_error": backend_error,
             "oauth_status": oauth_status,
             "oauth_error": oauth_error,
+            "current_user": current_user,
+            **template_nav_context(settings, current_user),
             "config": _safe_config(
                 settings, oauth_status=oauth_status, oauth_error=oauth_error
             ),
@@ -178,9 +186,11 @@ async def run_detail(
     request: Request,
     state_backend: Annotated[StateBackend, Depends(get_state_backend_dep)] = None,
     settings: Annotated[Settings, Depends(get_settings)] = None,
+    current_user: Annotated[dict | None, Depends(get_dashboard_user)] = None,
 ) -> HTMLResponse:
-    if not settings.dashboard_enabled:
-        raise HTTPException(status_code=404, detail="Dashboard disabled")
+    nav_denied = require_nav_access(request, settings, current_user, NAV_SYNC)
+    if nav_denied:
+        return nav_denied
     try:
         record = state_backend.get_run(run_id)
     except Exception as exc:
@@ -194,8 +204,12 @@ async def run_detail(
         request,
         "run_detail.html",
         {
+            "active_nav": "sync",
+            "page_title": "NinjaOne Sync Board",
             "run": record,
             "dashboard_auto_refresh_seconds": settings.dashboard_auto_refresh_seconds,
+            "current_user": current_user,
+            **template_nav_context(settings, current_user),
             "config": _safe_config(settings),
         },
     )

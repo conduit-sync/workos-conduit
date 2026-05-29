@@ -1,21 +1,27 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
-import boto3
-import pytest
-from fastapi.testclient import TestClient
-from moto import mock_aws
+# Before importing Settings: skip developer .env and drop removed redirect env keys.
+os.environ["WORKOS_CONDUIT_TESTING"] = "1"
+for _obsolete in (
+    "WORKOS_REDIRECT_URL_INTERNAL",
+    "WORKOS_REDIRECT_URL_EASTLAKE",
+    "NINJAONE_REDIRECT_URL_INTERNAL",
+    "NINJAONE_REDIRECT_URL_EASTLAKE",
+    "WORKOS_SSO_DEFAULT_REALM",
+    "WORKOS_SSO_INTERNAL_ORG_REDIRECT_URI",
+    "WORKOS_DASHBOARD_SSO_REDIRECT_URI",
+    "WORKOS_SSO_REDIRECT_URI",
+    "DASHBOARD_PUBLIC_BASE_URL",
+):
+    os.environ.pop(_obsolete, None)
 
-from src.config import Settings, get_settings
-from src.core.models import RunRecord, RunStatus
-
-FIXTURES = Path(__file__).parent / "fixtures"
-
-_TEST_ENV = {
-    "WORKOS_API_KEY": "sk_test_key",
+_TEST_ENV_BOOTSTRAP = {
+    "WORKOS_SSO_INTERNAL_ORG_API_KEY": "sk_test_key",
     "WORKOS_DIRECTORY_ID": "directory_test",
     "SYNC_TARGET_ADAPTER": "ninjaone",
     "NINJAONE_OAUTH_CLIENT_ID": "test-client-id",
@@ -31,11 +37,39 @@ _TEST_ENV = {
     "AWS_ACCESS_KEY_ID": "testing",
     "AWS_SECRET_ACCESS_KEY": "testing",
 }
+for _key, _value in _TEST_ENV_BOOTSTRAP.items():
+    os.environ.setdefault(_key, _value)
+
+import boto3
+import pytest
+from fastapi.testclient import TestClient
+from moto import mock_aws
+
+from src.config import Settings, get_settings
+from src.core.models import RunRecord, RunStatus
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+_OBSOLETE_ENV_KEYS = (
+    "WORKOS_REDIRECT_URL_INTERNAL",
+    "WORKOS_REDIRECT_URL_EASTLAKE",
+    "NINJAONE_REDIRECT_URL_INTERNAL",
+    "NINJAONE_REDIRECT_URL_EASTLAKE",
+    "WORKOS_SSO_DEFAULT_REALM",
+    "WORKOS_SSO_INTERNAL_ORG_REDIRECT_URI",
+    "WORKOS_DASHBOARD_SSO_REDIRECT_URI",
+    "WORKOS_SSO_REDIRECT_URI",
+    "DASHBOARD_PUBLIC_BASE_URL",
+)
+
+_TEST_ENV = _TEST_ENV_BOOTSTRAP
 
 
 @pytest.fixture(autouse=True)
 def _reset_settings_cache(monkeypatch):
     """Set required env vars and clear the lru_cache so each test gets fresh Settings."""
+    for key in _OBSOLETE_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
     for key, value in _TEST_ENV.items():
         monkeypatch.setenv(key, value)
     get_settings.cache_clear()
@@ -47,7 +81,7 @@ def _reset_settings_cache(monkeypatch):
 def settings_override() -> Settings:
     """Returns Settings with all required fields set to safe test values."""
     return Settings(
-        workos_api_key="sk_test_key",
+        workos_sso_internal_org_api_key="sk_test_key",
         workos_directory_id="directory_test",
         sync_target_adapter="ninjaone",
         ninjaone_oauth_client_id="test-client-id",

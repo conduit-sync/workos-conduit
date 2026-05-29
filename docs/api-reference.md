@@ -6,22 +6,23 @@ WorkOS Conduit exposes a JSON REST API and an HTML dashboard. All API responses 
 
 ## Authentication
 
-Two endpoints require authentication. They use a static API key passed as an HTTP header.
-
-| Header | Value |
-|---|---|
-| `X-API-Key` | Must match the `API_SECRET_KEY` environment variable |
-
-Authenticated endpoints:
+Two endpoints require authentication:
 
 - `POST /api/v1/sync/trigger`
 - `POST /dashboard/oauth/ninjaone/start`
 
-All other endpoints are unauthenticated. In production, restrict access to these POST endpoints via network policy (security group, ALB listener rule, or IP allowlist) in addition to the API key.
+Each accepts **either**:
 
-**401 response** (missing or wrong key):
+| Method | When |
+|---|---|
+| `X-API-Key` header | Must match `API_SECRET_KEY` (automation, curl, dashboard when SSO is off) |
+| SSO session cookie | `conduit_session` after WorkOS login, when `WORKOS_SSO_CLIENT_ID` is set |
+
+All other endpoints are unauthenticated. In production, restrict access to these POST endpoints via network policy (security group, ALB listener rule, or IP allowlist) in addition to auth.
+
+**401 response** (missing or invalid credentials):
 ```json
-{"detail": "Invalid or missing X-API-Key"}
+{"detail": "Invalid or missing authentication (X-API-Key or SSO session)"}
 ```
 
 ---
@@ -97,7 +98,7 @@ curl -s http://localhost:8080/health/ready | jq
 
 **Triggers a full sync cycle synchronously.** Fetches all WorkOS events since the last cursor position, processes each event in order, and returns the completed run record summary. The cycle completes before the HTTP response is sent — typical latency is 1–10 seconds depending on event volume and NinjaOne API response time.
 
-**Auth**: `X-API-Key` header required
+**Auth**: `X-API-Key` or SSO session (see [Authentication](#authentication))
 
 **Request body** (`application/json`, all fields optional):
 
@@ -133,7 +134,7 @@ Sending an empty body `{}` or no body is valid — `trigger_source` defaults to 
 
 | Status | Condition | Body |
 |---|---|---|
-| `401 Unauthorized` | Missing or wrong `X-API-Key` | `{"detail": "Invalid or missing X-API-Key"}` |
+| `401 Unauthorized` | Missing or invalid auth | `{"detail": "Invalid or missing authentication (X-API-Key or SSO session)"}` |
 | `422 Unprocessable Entity` | Malformed JSON body | FastAPI validation error object |
 | `500 Internal Server Error` | Unhandled exception in the sync engine | `{"detail": "Internal Server Error"}` |
 
@@ -287,7 +288,7 @@ curl -s "http://localhost:8080/api/v1/runs/${RUN_ID}" | jq '.results[] | select(
 - Events processed in the last 24 hours
 - Run history table (most recent `DASHBOARD_RUN_HISTORY_LIMIT` runs)
 - Action breakdown chart
-- "Trigger Sync Now" button (prompts for `API_SECRET_KEY` via JavaScript)
+- "Trigger Sync Now" button (uses SSO session when signed in, otherwise prompts for `API_SECRET_KEY`)
 
 **Response `404 Not Found`** (when `DASHBOARD_ENABLED=false`):
 ```json
@@ -322,9 +323,9 @@ or
 
 ### `POST /dashboard/oauth/ninjaone/start`
 
-**Starts the NinjaOne OAuth authorization-code flow for the dashboard button.** Validates API key, generates and stores a short-lived CSRF state cookie, and returns the NinjaOne authorize URL.
+**Starts the NinjaOne OAuth authorization-code flow for the dashboard button.** Validates auth, generates and stores a short-lived CSRF state cookie, and returns the NinjaOne authorize URL.
 
-**Auth**: `X-API-Key` header required
+**Auth**: `X-API-Key` or SSO session (see [Authentication](#authentication))
 
 **Request body**: none
 
@@ -339,8 +340,9 @@ or
 
 | Status | Condition | Body |
 |---|---|---|
-| `401 Unauthorized` | Missing or wrong `X-API-Key` | `{"detail":"Invalid or missing X-API-Key"}` |
-| `400 Bad Request` | `DASHBOARD_PUBLIC_BASE_URL` is empty | `{"detail":"DASHBOARD_PUBLIC_BASE_URL must be set for dashboard OAuth flow"}` |
+| `401 Unauthorized` | Missing or invalid auth | `{"detail":"Invalid or missing authentication (X-API-Key or SSO session)"}` |
+| `403 Forbidden` | Missing/invalid `X-Stakesmfg-Request-Realm` (and no `REQUEST_REALM_DEFAULT`) | `{"detail":"Not allowed origin"}` |
+| `403 Forbidden` | Realm redirect URL not configured | `{"detail":"Not allowed origin"}` |
 | `400 Bad Request` | `NINJAONE_OAUTH_REFRESH_TOKEN_SSM_PARAM` is empty | `{"detail":"NINJAONE_OAUTH_REFRESH_TOKEN_SSM_PARAM must be set to enable dashboard OAuth flow"}` |
 
 ---

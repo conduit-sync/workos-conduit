@@ -86,6 +86,27 @@ Run records are written to `.local-state/runs/` as `YYYYMMDDHHMMSS_{run_id[:8]}.
 
 To reset the cursor and reprocess all events from the beginning, delete `.local-state/cursor.txt`.
 
+### Dashboard SSO and NinjaOne OAuth (realm hosts) locally
+
+WorkOS SSO and NinjaOne OAuth share **one public base URL per realm**. Callback paths are fixed in the app:
+
+| Flow | Callback path (appended to base URL) |
+|---|---|
+| WorkOS SSO | `/auth/callback` |
+| NinjaOne OAuth | `/dashboard/oauth/ninjaone/callback` |
+
+| Variable | Example (local) |
+|---|---|
+| `WORKOS_SSO_INTERNAL_ORG_CLIENT_ID` | From WorkOS dashboard |
+| `DASHBOARD_PUBLIC_BASE_URL_INTERNAL` | `http://127.0.0.1:8080` (no trailing slash) |
+| `REQUEST_REALM_DEFAULT` | `internal` — only when testing without a proxy |
+
+**Do not set `REQUEST_REALM_DEFAULT` in production.**
+
+Register in WorkOS: `http://127.0.0.1:8080/auth/callback`. Register in NinjaOne: `http://127.0.0.1:8080/dashboard/oauth/ninjaone/callback`.
+
+Sync board and API-key auth work without SSO; only login and NinjaOne token generation need the realm base URLs when enabled.
+
 Available backend options:
 
 | `CURSOR_BACKEND` | Persistence |
@@ -259,16 +280,11 @@ If you use the dashboard **Generate Refresh Token** button, NinjaOne must redire
 1. Set in `.env`:
 
 ```bash
-DASHBOARD_PUBLIC_BASE_URL=http://localhost:8080
-# Optional override; default is already correct:
-# NINJAONE_OAUTH_REDIRECT_PATH=/dashboard/oauth/ninjaone/callback
+REQUEST_REALM_DEFAULT=internal
+DASHBOARD_PUBLIC_BASE_URL_INTERNAL=http://localhost:8080
 ```
 
-2. Register this exact callback URI in NinjaOne OAuth app settings:
-
-```text
-http://localhost:8080/dashboard/oauth/ninjaone/callback
-```
+2. Register that exact callback URI in NinjaOne OAuth app settings.
 
 The callback implementation is in `src/dashboard/oauth_router.py` at `GET /dashboard/oauth/ninjaone/callback`.
 

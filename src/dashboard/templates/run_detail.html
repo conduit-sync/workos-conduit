@@ -70,10 +70,37 @@
 
 <!-- ── Results Table ── -->
 {% if run.results %}
-<div class="mt-3">
-  <div class="section-title">Event Results</div>
-  <div class="card" style="padding:0;overflow:hidden;">
-    <table>
+<div class="mt-3" id="event-results-section">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
+    <div class="section-title" style="margin-bottom:0;">Event Results</div>
+    <span class="chip" id="event-results-count">{{ run.results | length }} rows</span>
+  </div>
+  <div class="card event-results-toolbar">
+    <label class="event-results-field">
+      <span class="event-results-label">Search</span>
+      <input
+        type="search"
+        id="event-results-search"
+        placeholder="Email, event type, target ID, fields…"
+        autocomplete="off"
+      />
+    </label>
+    <label class="event-results-field">
+      <span class="event-results-label">Action</span>
+      <select id="event-results-action-filter">
+        <option value="">All actions</option>
+      </select>
+    </label>
+    <label class="event-results-field">
+      <span class="event-results-label">Event type</span>
+      <select id="event-results-type-filter">
+        <option value="">All event types</option>
+      </select>
+    </label>
+    <button type="button" class="btn btn-secondary" id="event-results-clear">Clear filters</button>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden;margin-top:.75rem;">
+    <table id="event-results-table">
       <thead>
         <tr>
           <th>Event Type</th>
@@ -86,7 +113,12 @@
       </thead>
       <tbody>
         {% for r in run.results %}
-        <tr>
+        <tr
+          class="event-result-row"
+          data-action="{{ r.action.value }}"
+          data-event-type="{{ r.event_type }}"
+          data-search="{{ r.event_type }} {{ r.action.value }} {{ r.email or '' }} {{ r.target_user_id or '' }} {{ (r.changed_fields | join(' ')) if r.changed_fields else '' }}"
+        >
           <td class="mono" style="color:var(--text-dim);">{{ r.event_type }}</td>
           <td>
             {% if r.action.value == "created" %}
@@ -111,8 +143,127 @@
         {% endfor %}
       </tbody>
     </table>
+    <p id="event-results-empty" class="event-results-empty" hidden>No rows match your filters.</p>
   </div>
 </div>
+<style>
+  .event-results-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+  }
+  .event-results-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 10rem;
+    flex: 1 1 12rem;
+  }
+  .event-results-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .event-results-toolbar input[type="search"],
+  .event-results-toolbar select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.85rem;
+    outline: none;
+  }
+  .event-results-toolbar select {
+    font-family: 'Syne', sans-serif;
+    cursor: pointer;
+  }
+  .event-results-toolbar input:focus,
+  .event-results-toolbar select:focus {
+    border-color: var(--blue);
+  }
+  .event-results-empty {
+    padding: 1.25rem 1.5rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.875rem;
+    border-top: 1px solid var(--border);
+  }
+  tr.event-result-row[hidden] { display: none; }
+</style>
+<script>
+(function () {
+  const section = document.getElementById('event-results-section');
+  if (!section) return;
+
+  const rows = Array.from(section.querySelectorAll('.event-result-row'));
+  const searchInput = document.getElementById('event-results-search');
+  const actionFilter = document.getElementById('event-results-action-filter');
+  const typeFilter = document.getElementById('event-results-type-filter');
+  const clearBtn = document.getElementById('event-results-clear');
+  const countEl = document.getElementById('event-results-count');
+  const emptyEl = document.getElementById('event-results-empty');
+  const total = rows.length;
+
+  function fillSelect(select, values) {
+    values.sort().forEach((value) => {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = value;
+      select.appendChild(opt);
+    });
+  }
+
+  fillSelect(
+    actionFilter,
+    [...new Set(rows.map((r) => r.dataset.action).filter(Boolean))]
+  );
+  fillSelect(
+    typeFilter,
+    [...new Set(rows.map((r) => r.dataset.eventType).filter(Boolean))]
+  );
+
+  function applyFilters() {
+    const query = searchInput.value.trim().toLowerCase();
+    const action = actionFilter.value;
+    const eventType = typeFilter.value;
+    let visible = 0;
+
+    rows.forEach((row) => {
+      const haystack = (row.dataset.search || '').toLowerCase();
+      const matchesSearch = !query || haystack.includes(query);
+      const matchesAction = !action || row.dataset.action === action;
+      const matchesType = !eventType || row.dataset.eventType === eventType;
+      const show = matchesSearch && matchesAction && matchesType;
+      row.hidden = !show;
+      if (show) visible += 1;
+    });
+
+    countEl.textContent =
+      visible === total
+        ? `${total} rows`
+        : `${visible} of ${total} rows`;
+    emptyEl.hidden = visible > 0;
+  }
+
+  searchInput.addEventListener('input', applyFilters);
+  actionFilter.addEventListener('change', applyFilters);
+  typeFilter.addEventListener('change', applyFilters);
+  clearBtn.addEventListener('click', () => {
+    searchInput.value = '';
+    actionFilter.value = '';
+    typeFilter.value = '';
+    applyFilters();
+    searchInput.focus();
+  });
+})();
+</script>
 {% endif %}
 
 <!-- ── Errors Section ── -->

@@ -103,15 +103,11 @@ Each entry fields:
 
 **Authentication**: NinjaOne auth uses OAuth 2.0 with two grants. An operator manually generates a refresh token using the dashboard **Generate Refresh Token** button or `scripts/ninjaone_oauth_bootstrap.py`, and that token is stored in SSM SecureString (`NINJAONE_OAUTH_REFRESH_TOKEN_SSM_PARAM`). At runtime, the client exchanges that refresh token at `/oauth/token` (`grant_type=refresh_token`) to mint short-lived bearer access tokens, caches them in-process, and sends `Authorization: Bearer <token>` on API calls.
 
-**Required callback registration**: Register this exact redirect URI in your NinjaOne OAuth app:
+**Required callback registration**: Register `{DASHBOARD_PUBLIC_BASE_URL_*}{NINJAONE_OAUTH_REDIRECT_PATH}` in your NinjaOne OAuth app (same public base URLs as WorkOS SSO — see Dashboard section).
 
-```
-{DASHBOARD_PUBLIC_BASE_URL}{NINJAONE_OAUTH_REDIRECT_PATH}
-```
+The reverse proxy sets `X-Stakesmfg-Request-Realm` (`internal` or `eastlake`) on OAuth flows. For local dev without a proxy, set `REQUEST_REALM_DEFAULT`.
 
-Example: `https://conduit.example.com/dashboard/oauth/ninjaone/callback`.
-
-**Callback implementation**: The app implements the callback route at `GET /dashboard/oauth/ninjaone/callback`, and the flow start endpoint at `POST /dashboard/oauth/ninjaone/start` (API key protected). `NINJAONE_OAUTH_REDIRECT_PATH` must match the registered callback path.
+**Callback implementation**: `GET /dashboard/oauth/ninjaone/callback` and `POST /dashboard/oauth/ninjaone/start` (API key or SSO session). The redirect URI used at token exchange is the one stored when the flow started (must match the authorize step).
 
 **Group name matching**: `NINJAONE_GROUP_ROLE_MAP` uses **exact, case-sensitive** string matching against the WorkOS group name. `"IT Admins"` and `"it admins"` are different groups.
 
@@ -184,7 +180,7 @@ See `infra/aws/iam-task-role-policy.json` for the reference policy.
 |---|---|---|---|---|
 | `SERVER_HOST` | `str` | `0.0.0.0` | No | Host to bind the uvicorn server to |
 | `SERVER_PORT` | `int` | `8080` | No | Port to listen on |
-| `API_SECRET_KEY` | `str` | `change-me-in-production` | **Yes** (in production) | Secret token for `X-API-Key` header authentication on `POST /api/v1/sync/trigger` and `POST /dashboard/oauth/ninjaone/start`. The default value is intentionally insecure — always override in production. |
+| `API_SECRET_KEY` | `str` | `change-me-in-production` | **Yes** (in production) | `X-API-Key` for `POST /api/v1/sync/trigger` and `POST /dashboard/oauth/ninjaone/start`. Required for automation and when SSO is off; when dashboard SSO is enabled, signed-in users may call those endpoints with their session cookie instead. The default value is intentionally insecure — always override in production. |
 
 ---
 
@@ -195,7 +191,16 @@ See `infra/aws/iam-task-role-policy.json` for the reference policy.
 | `DASHBOARD_ENABLED` | `bool` | `true` | No | Enable or disable the Jinja2 HTML dashboard at `GET /`. When `false`, the route returns 404. |
 | `DASHBOARD_RUN_HISTORY_LIMIT` | `int` | `50` | No | Maximum number of run records shown in the dashboard run history table |
 | `DASHBOARD_AUTO_REFRESH_SECONDS` | `int` | `60` | No | Interval in seconds for the dashboard `<meta http-equiv="refresh">` tag. Set to `0` to disable auto-refresh. |
-| `DASHBOARD_PUBLIC_BASE_URL` | `str` | `""` | Required for dashboard OAuth flow | Public app base URL used to construct the registered OAuth callback URI (`{base_url}/dashboard/oauth/ninjaone/callback`). |
+| `DASHBOARD_PUBLIC_BASE_URL_INTERNAL` | `str` | `""` | Required for SSO / dashboard OAuth | Public app URL for the internal realm (no trailing slash). |
+| `DASHBOARD_PUBLIC_BASE_URL_EASTLAKE` | `str` | `""` | Required for SSO / dashboard OAuth | Public app URL for the eastlake realm. |
+| `REQUEST_REALM_DEFAULT` | `str` | `""` | Local dev only | Fallback realm when `X-Stakesmfg-Request-Realm` is absent (`internal` or `eastlake`). |
+
+**Derived callback URLs** (register these with WorkOS / NinjaOne):
+
+| Flow | URI |
+|---|---|
+| WorkOS SSO | `{DASHBOARD_PUBLIC_BASE_URL_*}/auth/callback` |
+| NinjaOne OAuth | `{DASHBOARD_PUBLIC_BASE_URL_*}/dashboard/oauth/ninjaone/callback` |
 
 ---
 

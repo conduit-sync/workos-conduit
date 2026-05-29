@@ -3,21 +3,64 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
-from pydantic import model_validator
+from pydantic import AliasChoices, Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # WorkOS
-    workos_api_key: str
+    # ── WorkOS: Internal org (directory sync + dashboard operator SSO) ───────
+    workos_sso_internal_org_api_key: str = Field(
+        validation_alias=AliasChoices(
+            "WORKOS_SSO_INTERNAL_ORG_API_KEY",
+            "WORKOS_API_KEY",
+        ),
+    )
     workos_directory_id: str
     workos_event_types: str = (
         '["dsync.user.created","dsync.user.updated","dsync.user.deleted",'
         '"dsync.group.user_added","dsync.group.user_removed"]'
     )
     workos_events_page_size: int = 100
+    # SSO enabled when workos_sso_internal_org_client_id is set.
+    workos_sso_internal_org_client_id: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "WORKOS_SSO_INTERNAL_ORG_CLIENT_ID",
+            "WORKOS_DASHBOARD_SSO_CLIENT_ID",
+            "WORKOS_SSO_CLIENT_ID",
+        ),
+    )
+    workos_sso_internal_org_organization_id: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "WORKOS_SSO_INTERNAL_ORG_ORGANIZATION_ID",
+            "WORKOS_DASHBOARD_SSO_ORGANIZATION_ID",
+            "WORKOS_SSO_ORGANIZATION_ID",
+        ),
+    )
+    workos_dashboard_sync_board_role_slugs: str = "app-workos-conduit-admin-role"
+    workos_dashboard_portal_role_slugs: str = (
+        "app-workos-conduit-admin-role,app-workos-conduit-user-role"
+    )
+    workos_sso_internal_org_session_secret: str = Field(
+        default="change-me-in-production",
+        validation_alias=AliasChoices(
+            "WORKOS_SSO_INTERNAL_ORG_SESSION_SECRET",
+            "DASHBOARD_SSO_SESSION_SECRET",
+        ),
+    )
+    # Deprecated env vars (accepted but ignored — remove from .env)
+    workos_sso_role_slugs: str = ""
+
+    # ── WorkOS: Customer portal (separate org / API key — user invitations) ─
+    workos_customer_portal_api_key: str = ""
+    workos_customer_portal_organization_id: str = ""
+    workos_customer_portal_invite_role_slug: str = ""
+    workos_customer_portal_user_client_id_metadata_key: str = "client_id"
+    workos_customer_portal_default_role_slug: str = ""  # deprecated; ignored
 
     # Adapter selection
     sync_target_adapter: str = "ninjaone"
@@ -41,6 +84,9 @@ class Settings(BaseSettings):
     ninjaone_oauth_refresh_token_ssm_param: str = (
         "/workos-conduit/ninjaone/oauth-refresh-token"
     )
+    # Optional SSM parameter ARN: mirrored only when NinjaOne rotates the refresh
+    # token at runtime (issuer=runtime). Leave empty to disable.
+    ninjaone_oauth_refresh_token_update_ssm_arn: str = ""
     ninjaone_oauth_refresh_token_lifetime_days: int = 30
     # Deprecated compatibility shim for existing .env files.
     ninjaone_api_key: str = ""
@@ -75,7 +121,11 @@ class Settings(BaseSettings):
     dashboard_enabled: bool = True
     dashboard_run_history_limit: int = 50
     dashboard_auto_refresh_seconds: int = 60
-    dashboard_public_base_url: str = ""
+    # Per-realm public URL of this app (no trailing slash). OAuth callbacks are base + fixed path.
+    dashboard_public_base_url_internal: str = ""
+    dashboard_public_base_url_eastlake: str = ""
+    # Local dev only: fallback when X-Stakesmfg-Request-Realm is absent (omit in production).
+    request_realm_default: str = ""
 
     # Logging
     log_level: str = "INFO"
@@ -83,7 +133,35 @@ class Settings(BaseSettings):
     log_format: str = "json"  # json | console
     log_file_path: str = "/var/log/workos-conduit/app.log"
 
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def sso_enabled(self) -> bool:
+        return bool(self.workos_sso_internal_org_client_id.strip())
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def customer_portal_enabled(self) -> bool:
+        return bool(self.workos_customer_portal_organization_id.strip())
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def customer_portal_api_key(self) -> str:
+        """Portal org API key; uses internal org API key only when portal key is unset."""
+        return (
+            self.workos_customer_portal_api_key.strip()
+            or self.workos_sso_internal_org_api_key
+        )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def customer_portal_invite_role_slug(self) -> str:
+        return self.workos_customer_portal_invite_role_slug.strip()
+
+    model_config = SettingsConfigDict(
+        env_file=None if os.getenv("WORKOS_CONDUIT_TESTING") else ".env",
+        case_sensitive=False,
+        populate_by_name=True,
+    )
 
     @model_validator(mode="after")
     def validate_config(self) -> Settings:
@@ -103,6 +181,12 @@ class Settings(BaseSettings):
                 _j.loads(raw)
             except Exception as e:
                 raise ValueError(f"workos_event_types is not valid JSON: {e}") from e
+        if self.workos_customer_portal_organization_id.strip():
+            if not self.workos_customer_portal_invite_role_slug.strip():
+                raise ValueError(
+                    "workos_customer_portal_invite_role_slug is required when "
+                    "workos_customer_portal_organization_id is set"
+                )
         return self
 
 

@@ -11,6 +11,7 @@ from typing import Literal, Protocol
 from pydantic import BaseModel, ValidationError
 
 from src.backends.aws.client import make_boto_client
+from src.core.param_loader import parameter_name_from_ssm_arn
 
 
 class RefreshTokenRecord(BaseModel):
@@ -61,6 +62,10 @@ class SsmRefreshTokenStore:
         self._settings = settings
         self._client = make_boto_client("ssm", settings)
         self._param = settings.ninjaone_oauth_refresh_token_ssm_param
+        update_arn = (settings.ninjaone_oauth_refresh_token_update_ssm_arn or "").strip()
+        self._update_param = (
+            parameter_name_from_ssm_arn(update_arn) if update_arn else ""
+        )
 
     def get(self) -> RefreshTokenRecord | None:
         try:
@@ -91,10 +96,15 @@ class SsmRefreshTokenStore:
                 f"Invalid refresh token payload in SSM '{self._param}'"
             ) from exc
 
-    def put(self, record: RefreshTokenRecord) -> None:
+    def _write(self, param_name: str, record: RefreshTokenRecord) -> None:
         self._client.put_parameter(
-            Name=self._param,
+            Name=param_name,
             Value=record.model_dump_json(),
             Type="SecureString",
             Overwrite=True,
         )
+
+    def put(self, record: RefreshTokenRecord) -> None:
+        self._write(self._param, record)
+        if record.issuer == "runtime" and self._update_param:
+            self._write(self._update_param, record)

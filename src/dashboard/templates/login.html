@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+  .login-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - 56px);
+    padding: 2rem 1.5rem;
+  }
+  .login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2.5rem 2rem;
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+  }
+  .login-logo {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+  }
+  .login-subtitle {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 2rem;
+  }
+  .login-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 1.5rem 0;
+  }
+  .login-msg {
+    padding: 0.65rem 1rem;
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    margin-bottom: 1.25rem;
+    text-align: left;
+  }
+  .login-msg-success {
+    background: rgba(63,185,80,.12);
+    border: 1px solid rgba(63,185,80,.3);
+    color: var(--green);
+  }
+  .login-msg-error {
+    background: rgba(248,81,73,.12);
+    border: 1px solid rgba(248,81,73,.3);
+    color: var(--red);
+  }
+  .login-msg[data-login-flash] {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .login-flash-dismiss {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: inherit;
+    opacity: 0.75;
+    font-size: 1.25rem;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+  }
+  .login-flash-dismiss:hover { opacity: 1; }
+  .login-msg[hidden] { display: none; }
+  .btn-sso {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.65rem 1rem;
+    background: rgba(88,166,255,.15);
+    border: 1px solid rgba(88,166,255,.4);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background .15s, border-color .15s;
+  }
+  .btn-sso:hover {
+    background: rgba(88,166,255,.25);
+    border-color: rgba(88,166,255,.6);
+    text-decoration: none;
+  }
+  .sso-icon {
+    width: 18px;
+    height: 18px;
+    opacity: 0.85;
+  }
+</style>
+
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo">WorkOS Conduit</div>
+    <div class="login-subtitle">Admin Dashboard</div>
+
+    {% if message == "logged_out" %}
+    <div class="login-msg login-msg-success" data-login-flash>
+      <span>You have been signed out.</span>
+      <button type="button" class="login-flash-dismiss" aria-label="Dismiss">×</button>
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="login-msg login-msg-error" data-login-flash>
+      <span>
+      {% if error == "directory_user_not_found" %}
+        Your account was not found in the synced directory. Ensure you are provisioned in Google Workspace and directory sync has completed.
+      {% elif error == "directory_role_not_authorized" %}
+        Access denied. Your directory role is not authorized for this dashboard.
+        {% if error_detail %}<div style="margin-top:.5rem;font-size:.72rem;font-family:'IBM Plex Mono',monospace;color:var(--text-dim);">{{ error_detail }}</div>{% endif %}
+      {% elif error == "section_access_denied" %}
+        Access denied. You do not have permission to view that section.
+        {% if error_detail %}<div style="margin-top:.5rem;font-size:.75rem;color:var(--text-dim);">{{ error_detail }}</div>{% endif %}
+      {% elif error == "access_denied" %}
+        Access denied. Your account does not have permission to access this dashboard.
+      {% elif error == "invalid_state" %}
+        Login session expired or invalid. Please try again.
+      {% elif error == "missing_code_or_state" %}
+        Incomplete SSO callback. Please try again.
+      {% elif error == "auth_failed" %}
+        Authentication failed. Please try again or contact your administrator.
+      {% elif error == "role_lookup_failed" %}
+        Unable to verify your role. Please try again or contact your administrator.
+      {% else %}
+        Sign-in error: {{ error }}. Please try again.
+      {% endif %}
+      </span>
+      <button type="button" class="login-flash-dismiss" aria-label="Dismiss">×</button>
+    </div>
+    {% endif %}
+
+    <a href="/auth/sso/initiate" class="btn-sso">
+      <svg class="sso-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+      </svg>
+      Sign in with SSO
+    </a>
+
+    <hr class="login-divider" />
+    <p style="font-size:0.75rem; color:var(--text-dim);">
+      Secured with <a href="https://workos.com" target="_blank" rel="noopener">WorkOS</a> AuthKit
+    </p>
+  </div>
+</div>
+<script>
+(function () {
+  const params = new URLSearchParams(window.location.search);
+  ['error', 'message', 'error_detail'].forEach((key) => params.delete(key));
+  const next = params.toString();
+  if (window.location.search) {
+    window.history.replaceState(
+      null,
+      '',
+      window.location.pathname + (next ? '?' + next : '')
+    );
+  }
+  document.querySelectorAll('[data-login-flash]').forEach((flash) => {
+    const dismiss = () => { flash.hidden = true; };
+    const btn = flash.querySelector('.login-flash-dismiss');
+    if (btn) btn.addEventListener('click', dismiss);
+    window.setTimeout(dismiss, 8000);
+  });
+})();
+</script>
+{% endblock %}

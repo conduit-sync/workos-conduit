@@ -29,8 +29,8 @@
       },
       "secrets": [
         {
-          "name": "WORKOS_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:workos-conduit/WORKOS_API_KEY"
+          "name": "WORKOS_SSO_INTERNAL_ORG_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:workos-conduit/WORKOS_SSO_INTERNAL_ORG_API_KEY"
         },
         {
           "name": "NINJAONE_CLIENT_ID",

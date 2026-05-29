@@ -4,9 +4,10 @@
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Body, Depends, Header, HTTPException
+from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel
 
+from src.auth.action_auth import require_dashboard_or_api_key
 from src.backends.base import StateBackend
 from src.config import Settings
 from src.core.models import RunStatus
@@ -36,18 +37,13 @@ class TriggerResponse(BaseModel):
 )
 async def trigger_sync(
     trigger: Annotated[TriggerRequest, Body(embed=False)],
-    settings: Annotated[Settings, Depends(get_settings)],
+    _: Annotated[None, Depends(require_dashboard_or_api_key)],
     engine: Annotated[SyncEngine, Depends(get_sync_engine)],
-    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
 ) -> TriggerResponse:
     """
     Triggers a complete sync cycle synchronously.
-    Requires X-API-Key header matching settings.api_secret_key.
+    Requires X-API-Key or an active SSO session when dashboard SSO is enabled.
     """
-    if not x_api_key or x_api_key != settings.api_secret_key:
-        log.warning("sync_trigger_unauthorized", trigger_source=trigger.trigger_source)
-        raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key")
-
     log.info("sync_trigger_received", trigger_source=trigger.trigger_source)
     record = engine.run_cycle(trigger_source=trigger.trigger_source)
     log.info(
